@@ -218,6 +218,25 @@ def evaluate_thresholds(market, quote, state, rearm_ratio):
     return tuple(alerts), TriggerState(armed=frozenset(armed))
 
 
+def evaluate_markets(markets, quotes, states, rearm_ratio):
+    """一轮刷新：对每个取到读数的市场独立判定（纯函数）。
+
+    quotes 为 代码 → Quote 的映射；没有读数的市场（取数失败）保持原状态、
+    不产生提醒。新状态表按市场分别写入，市场之间互不覆盖、互不阻塞。
+    """
+    alerts = []
+    next_states = dict(states)
+    for market in markets:
+        quote = quotes.get(market["code"])
+        if quote is None:
+            continue
+        new_alerts, next_states[market["code"]] = evaluate_thresholds(
+            market, quote, states[market["code"]], rearm_ratio
+        )
+        alerts.extend(new_alerts)
+    return tuple(alerts), next_states
+
+
 def market_status(market, state):
     """市场状态文案：任一启用方向已触发待回落，否则监视中。"""
     for direction, _ in enabled_directions(market):
@@ -262,6 +281,21 @@ def render(market, quote, error, state, rearm_ratio):
             )
         )
     lines.append(f"  状态：{market_status(market, state)}")
+    return lines
+
+
+def render_frame(markets, quotes, errors, states, rearm_ratio):
+    """渲染整帧控制台内容：每个市场一段，段间空行分隔（纯函数）。
+
+    quotes、errors 均按市场代码索引；缺读数的市场由 errors 给出原因（数据源故障）。
+    """
+    lines = []
+    for market in markets:
+        code = market["code"]
+        lines.extend(
+            render(market, quotes.get(code), errors.get(code), states[code], rearm_ratio)
+        )
+        lines.append("")
     return lines
 
 
@@ -499,27 +533,19 @@ def run():
         except Exception as exc:  # 单轮取数失败不退出，下一轮自动重试
             raw = ""
             fetch_error = f"{type(exc).__name__}: {exc}"
-        alerts = []
+        quotes = {}
+        errors = {}
         for market in MARKETS:
-            quote = None
-            error = fetch_error
-            if error is None:
-                line = next(
-                    (l for l in raw.splitlines() if market["code"] in l), ""
-                )
+            code = market["code"]
+            errors[code] = fetch_error
+            if fetch_error is None:
+                line = next((l for l in raw.splitlines() if code in l), "")
                 try:
-                    quote = parse_quote(line, market["code"])
+                    quotes[code] = parse_quote(line, code)
                 except QuoteError as exc:
-                    error = str(exc)
-                else:
-                    new_alerts, states[market["code"]] = evaluate_thresholds(
-                        market, quote, states[market["code"]], REARM_RATIO
-                    )
-                    alerts.extend(new_alerts)
-            lines.extend(
-                render(market, quote, error, states[market["code"]], REARM_RATIO)
-            )
-            lines.append("")
+                    errors[code] = str(exc)
+        alerts, states = evaluate_markets(MARKETS, quotes, states, REARM_RATIO)
+        lines.extend(render_frame(MARKETS, quotes, errors, states, REARM_RATIO))
         delay = next_refresh_delay(now, REFRESH_INTERVAL)
         next_fire = now.replace(microsecond=0) + timedelta(seconds=delay)
         lines.append(
