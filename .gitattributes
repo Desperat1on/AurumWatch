@@ -1,0 +1,3 @@
+# cmd.exe 按 CRLF 解析 .bat；LF 会导致命令错位（实测跳过 chcp/cd 并报错）。
+# -text：不转换，仓库内即按 Windows 约定保存 CRLF 字节。
+*.bat -text
