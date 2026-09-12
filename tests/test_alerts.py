@@ -2,13 +2,16 @@
 """穿越触发判定单元测试（纯函数，不碰网络与 UI）。"""
 
 import unittest
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 from watch_gold import (
     DOWNSIDE,
+    INITIAL_FAILURE,
     INITIAL_STATE,
     UPSIDE,
+    FailureState,
+    MarketRound,
     Quote,
     evaluate_thresholds,
     render,
@@ -16,6 +19,7 @@ from watch_gold import (
 
 AT = datetime(2026, 9, 12, 12, 0, 0)
 RATIO = Decimal("0.001")
+WARN_AFTER = timedelta(minutes=10)
 
 # 配置与领域术语同形：国内金价，涨破 950、跌破 900，重新武装带取阈值的 0.1%
 DOMESTIC = {
@@ -40,9 +44,14 @@ def fired_state(price, market=DOMESTIC):
 
 
 def console_text(price, state, market=DOMESTIC, error=None):
-    """把一次控制台渲染拼成文本，便于断言。"""
-    quote = reading(price) if price is not None else None
-    return "\n".join(render(market, quote, error, state, RATIO))
+    """把一次控制台渲染拼成文本，便于断言；取数失败时失败记账自本次刷新起算。"""
+    if price is None:
+        round_ = MarketRound(market=market, error=error)
+        failure = FailureState(since=AT)
+    else:
+        round_ = MarketRound(market=market, quote=reading(price))
+        failure = INITIAL_FAILURE
+    return "\n".join(render(round_, state, failure, AT, RATIO, WARN_AFTER))
 
 
 class UpsideTrigger(unittest.TestCase):
@@ -291,11 +300,6 @@ class ConsoleRendering(unittest.TestCase):
         text = console_text("940.00", INITIAL_STATE, market=market)
         self.assertNotIn("涨破", text)
         self.assertIn("跌破阈值", text)
-
-    def test_fetch_error_shows_only_error_line(self):
-        text = console_text(None, INITIAL_STATE, error="请求超时")
-        self.assertIn("数据源故障：请求超时", text)
-        self.assertNotIn("现价", text)
 
 
 if __name__ == "__main__":

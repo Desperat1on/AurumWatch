@@ -2,13 +2,16 @@
 """国内、国际两个市场同挂一套提醒：各自独立判定、各自显示（纯函数，不碰网络与 UI）。"""
 
 import unittest
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 from watch_gold import (
     DOWNSIDE,
+    INITIAL_FAILURE,
     INITIAL_STATE,
     UPSIDE,
+    FailureState,
+    MarketRound,
     Quote,
     evaluate_markets,
     render,
@@ -17,6 +20,7 @@ from watch_gold import (
 
 AT = datetime(2026, 9, 12, 12, 0, 0)
 RATIO = Decimal("0.001")
+WARN_AFTER = timedelta(minutes=10)
 
 # 配置与领域术语同形：两个市场各两个阈值；国际按美元/盎司，与国内不同量纲、数值也不同
 DOMESTIC = {
@@ -37,21 +41,31 @@ INTERNATIONAL = {
 }
 BOTH_MARKETS = (DOMESTIC, INTERNATIONAL)
 INITIAL_STATES = {market["code"]: INITIAL_STATE for market in BOTH_MARKETS}
+INITIAL_FAILURES = {market["code"]: INITIAL_FAILURE for market in BOTH_MARKETS}
 
 
-def quotes(prices):
-    """一轮读数：市场名 → 价格，数据时间固定。"""
-    codes = {market["name"]: market["code"] for market in BOTH_MARKETS}
-    return {
-        codes[name]: Quote(price=Decimal(price), time=AT)
-        for name, price in prices.items()
-    }
+def rounds(prices, markets=BOTH_MARKETS, failing=()):
+    """一轮取数结果：市场名 → 价格，数据时间固定；failing 里的市场本轮取数失败。"""
+    return [
+        MarketRound(market=market, error="ConnectionError: 连接失败")
+        if market["name"] in failing
+        else MarketRound(
+            market=market,
+            quote=Quote(price=Decimal(prices[market["name"]]), time=AT),
+        )
+        for market in markets
+    ]
 
 
 def console_text(price, market, state=INITIAL_STATE, error=None):
     """把单个市场的控制台段落拼成文本，便于断言。"""
-    quote = Quote(price=Decimal(price), time=AT) if price is not None else None
-    return "\n".join(render(market, quote, error, state, RATIO))
+    if price is None:
+        round_ = MarketRound(market=market, error=error)
+        failure = FailureState(since=AT)
+    else:
+        round_ = MarketRound(market=market, quote=Quote(price=Decimal(price), time=AT))
+        failure = INITIAL_FAILURE
+    return "\n".join(render(round_, state, failure, AT, RATIO, WARN_AFTER))
 
 
 class MarketsFireOnTheirOwnLines(unittest.TestCase):
@@ -59,8 +73,7 @@ class MarketsFireOnTheirOwnLines(unittest.TestCase):
 
     def test_both_markets_fire_in_the_same_cycle(self):
         alerts, _ = evaluate_markets(
-            BOTH_MARKETS,
-            quotes({"国内金价": "955.00", "国际金价": "4410.00"}),
+            rounds({"国内金价": "955.00", "国际金价": "4410.00"}),
             INITIAL_STATES,
             RATIO,
         )
@@ -77,8 +90,7 @@ class SingleMarketEnabled(unittest.TestCase):
     def test_market_without_thresholds_never_fires(self):
         quiet = dict(INTERNATIONAL, up_threshold=None, down_threshold=None)
         alerts, states = evaluate_markets(
-            (DOMESTIC, quiet),
-            quotes({"国内金价": "955.00", "国际金价": "4500.00"}),
+            rounds({"国内金价": "955.00", "国际金价": "4500.00"}, (DOMESTIC, quiet)),
             INITIAL_STATES,
             RATIO,
         )
@@ -90,8 +102,7 @@ class SingleMarketEnabled(unittest.TestCase):
             INTERNATIONAL, up_threshold=Decimal("0"), down_threshold=Decimal("0")
         )
         alerts, _ = evaluate_markets(
-            (DOMESTIC, quiet),
-            quotes({"国内金价": "940.00", "国际金价": "4500.00"}),
+            rounds({"国内金价": "940.00", "国际金价": "4500.00"}, (DOMESTIC, quiet)),
             INITIAL_STATES,
             RATIO,
         )
@@ -100,8 +111,7 @@ class SingleMarketEnabled(unittest.TestCase):
     def test_only_international_enabled_domestic_stays_quiet(self):
         quiet = dict(DOMESTIC, up_threshold=None, down_threshold=None)
         alerts, _ = evaluate_markets(
-            (quiet, INTERNATIONAL),
-            quotes({"国内金价": "1000.00", "国际金价": "4410.00"}),
+            rounds({"国内金价": "1000.00", "国际金价": "4410.00"}, (quiet, INTERNATIONAL)),
             INITIAL_STATES,
             RATIO,
         )
@@ -118,9 +128,9 @@ class ConsoleShowsEachMarket(unittest.TestCase):
     def test_frame_lists_both_sections_in_market_order(self):
         """整帧逐行比对：两段的归属、顺序、段间空行、各自的单位与状态都咬死。"""
         prices = {"国内金价": "956.00", "国际金价": "4355.00"}
-        _, states = evaluate_markets(BOTH_MARKETS, quotes(prices), INITIAL_STATES, RATIO)
+        _, states = evaluate_markets(rounds(prices), INITIAL_STATES, RATIO)
         self.assertEqual(
-            render_frame(BOTH_MARKETS, quotes(prices), {}, states, RATIO),
+            render_frame(rounds(prices), states, INITIAL_FAILURES, AT, RATIO, WARN_AFTER),
             [
                 "【国内金价】沪金99（上海黄金交易所 Au99.99）",
                 "  现价：956.00 元/克",
@@ -149,8 +159,7 @@ class ConsoleShowsEachMarket(unittest.TestCase):
 
     def test_international_fired_shows_rearm_line(self):
         _, states = evaluate_markets(
-            BOTH_MARKETS,
-            quotes({"国内金价": "940.00", "国际金价": "4410.00"}),
+            rounds({"国内金价": "940.00", "国际金价": "4410.00"}),
             INITIAL_STATES,
             RATIO,
         )
@@ -173,8 +182,7 @@ class StatesAreNotShared(unittest.TestCase):
 
     def test_one_market_crossing_leaves_the_other_armed(self):
         alerts, states = evaluate_markets(
-            BOTH_MARKETS,
-            quotes({"国内金价": "955.00", "国际金价": "4350.00"}),
+            rounds({"国内金价": "955.00", "国际金价": "4350.00"}),
             INITIAL_STATES,
             RATIO,
         )
@@ -184,15 +192,13 @@ class StatesAreNotShared(unittest.TestCase):
 
     def test_each_market_rearms_on_its_own_line(self):
         _, states = evaluate_markets(
-            BOTH_MARKETS,
-            quotes({"国内金价": "955.00", "国际金价": "4410.00"}),
+            rounds({"国内金价": "955.00", "国际金价": "4410.00"}),
             INITIAL_STATES,
             RATIO,
         )
         # 国内回落到 948.00（已越过重新武装线 949.05），国际停在 4405.00（未到 4395.60）
         alerts, states = evaluate_markets(
-            BOTH_MARKETS,
-            quotes({"国内金价": "948.00", "国际金价": "4405.00"}),
+            rounds({"国内金价": "948.00", "国际金价": "4405.00"}),
             states,
             RATIO,
         )
@@ -201,15 +207,13 @@ class StatesAreNotShared(unittest.TestCase):
         self.assertNotIn(UPSIDE, states["hf_XAU"].armed, "国际未回落越带，保持已触发")
         # 国际回落到 4395.00（已越过 4395.60）后再次越线：只有它提醒
         _, states = evaluate_markets(
-            BOTH_MARKETS,
-            quotes({"国内金价": "948.00", "国际金价": "4395.00"}),
+            rounds({"国内金价": "948.00", "国际金价": "4395.00"}),
             states,
             RATIO,
         )
         self.assertIn(UPSIDE, states["hf_XAU"].armed)
         alerts, _ = evaluate_markets(
-            BOTH_MARKETS,
-            quotes({"国内金价": "948.00", "国际金价": "4402.00"}),
+            rounds({"国内金价": "948.00", "国际金价": "4402.00"}),
             states,
             RATIO,
         )
@@ -217,14 +221,13 @@ class StatesAreNotShared(unittest.TestCase):
 
     def test_missing_quote_keeps_that_market_state(self):
         _, states = evaluate_markets(
-            BOTH_MARKETS,
-            quotes({"国内金价": "955.00", "国际金价": "4410.00"}),
+            rounds({"国内金价": "955.00", "国际金价": "4410.00"}),
             INITIAL_STATES,
             RATIO,
         )
         fired = dict(states)
         alerts, states = evaluate_markets(
-            BOTH_MARKETS, quotes({"国内金价": "890.00"}), fired, RATIO
+            rounds({"国内金价": "890.00"}, failing=("国际金价",)), fired, RATIO
         )
         self.assertEqual(
             [(a.market, a.direction) for a in alerts],
@@ -236,8 +239,7 @@ class StatesAreNotShared(unittest.TestCase):
     def test_input_states_are_not_mutated(self):
         states = dict(INITIAL_STATES)
         evaluate_markets(
-            BOTH_MARKETS,
-            quotes({"国内金价": "955.00", "国际金价": "4410.00"}),
+            rounds({"国内金价": "955.00", "国际金价": "4410.00"}),
             states,
             RATIO,
         )

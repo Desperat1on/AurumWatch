@@ -35,6 +35,8 @@ REARM_RATIO = Decimal("0.001")
 POPUP_DURATION = 30
 # 触发时是否播放一声短提示音
 SOUND_ENABLED = True
+# 某市场连续取数失败多久后弹出一次故障警告（须用 datetime.timedelta 填写）
+FAILURE_WARN_AFTER = timedelta(minutes=10)
 
 # 每个市场的提醒阈值：涨破、跌破各一个；留空（None）或填 0 的方向不启用、不提醒。
 # 数值照抄 Decimal("...") 的格式填写（带小数时不要直接写浮点数）。
@@ -58,7 +60,7 @@ MARKETS = (
 )
 # ===============================================================
 
-API_URL = "https://hq.sinajs.cn/list={codes}"
+API_URL = "https://hq.sinajs.cn/list={code}"
 HEADERS = {"Referer": "https://finance.sina.com.cn"}
 NEWLINE = "\r\n"
 
@@ -75,6 +77,23 @@ class Quote:
 
     price: Decimal
     time: datetime
+
+
+@dataclass(frozen=True)
+class MarketRound:
+    """一个市场一轮刷新的取数结果：读数与故障二者必居其一。"""
+
+    market: dict
+    quote: Quote | None = None
+    error: str | None = None
+
+    def __post_init__(self):
+        if (self.quote is None) == (self.error is None):
+            raise ValueError("MarketRound 须有读数或故障原因，且只有其一")
+
+    @property
+    def failed(self):
+        return self.error is not None
 
 
 def next_refresh_delay(now, interval):
@@ -112,13 +131,32 @@ def parse_quote(line, code, scale=Decimal("1")):
     return Quote(price=price, time=data_time)
 
 
-def fetch_raw(codes):
-    """向数据源请求若干行情代码的原始响应文本（GBK 解码）。"""
+def fetch_raw(code):
+    """向数据源请求单个行情代码的原始响应文本（GBK 解码）。"""
     response = requests.get(
-        API_URL.format(codes=",".join(codes)), headers=HEADERS, timeout=REQUEST_TIMEOUT
+        API_URL.format(code=code), headers=HEADERS, timeout=REQUEST_TIMEOUT
     )
     response.raise_for_status()
     return response.content.decode("gbk")
+
+
+def fetch_rounds(markets):
+    """逐市场取数并解析（副作用层）：每个市场各发一次请求，成败互不牵连。
+
+    单市场失败（网络异常或响应解析失败）只影响它自己，另一个市场照常取数。
+    """
+    rounds = []
+    for market in markets:
+        code = market["code"]
+        try:
+            raw = fetch_raw(code)
+            line = next((l for l in raw.splitlines() if code in l), "")
+            quote = parse_quote(line, code)
+        except Exception as exc:  # 本轮失败不退出，下一轮自动重试
+            rounds.append(MarketRound(market=market, error=f"{type(exc).__name__}: {exc}"))
+        else:
+            rounds.append(MarketRound(market=market, quote=quote))
+    return rounds
 
 
 # ======================= 触发判定核心（纯函数） =======================
@@ -218,23 +256,92 @@ def evaluate_thresholds(market, quote, state, rearm_ratio):
     return tuple(alerts), TriggerState(armed=frozenset(armed))
 
 
-def evaluate_markets(markets, quotes, states, rearm_ratio):
+def evaluate_markets(rounds, states, rearm_ratio):
     """一轮刷新：对每个取到读数的市场独立判定（纯函数）。
 
-    quotes 为 代码 → Quote 的映射；没有读数的市场（取数失败）保持原状态、
-    不产生提醒。新状态表按市场分别写入，市场之间互不覆盖、互不阻塞。
+    取数失败的市场（round 只有故障、没有读数）保持原状态、不产生提醒——
+    故障不会被当成行情。新状态表按市场分别写入，市场之间互不覆盖、互不阻塞。
     """
     alerts = []
     next_states = dict(states)
-    for market in markets:
-        quote = quotes.get(market["code"])
-        if quote is None:
+    for round_ in rounds:
+        if round_.failed:
             continue
-        new_alerts, next_states[market["code"]] = evaluate_thresholds(
-            market, quote, states[market["code"]], rearm_ratio
+        code = round_.market["code"]
+        new_alerts, next_states[code] = evaluate_thresholds(
+            round_.market, round_.quote, states[code], rearm_ratio
         )
         alerts.extend(new_alerts)
     return tuple(alerts), next_states
+
+
+# ======================= 取数故障记账（纯函数） =======================
+
+
+@dataclass(frozen=True)
+class FailureState:
+    """一个市场的取数失败记账：连续失败起点（成功即归零）与本次长故障是否已警告。"""
+
+    since: datetime | None = None
+    warned: bool = False
+
+
+# 从未失败过的初始失败状态
+INITIAL_FAILURE = FailureState()
+
+
+@dataclass(frozen=True)
+class FailureWarning:
+    """一次故障警告：某市场连续取数失败到点，内容说明是数据源故障。"""
+
+    market: str
+    detail: str
+    since: datetime
+    elapsed: timedelta
+    error: str
+
+
+def duration_text(delta):
+    """时长文案：不足 1 分钟按秒、不足 1 小时按分钟，再长按小时加分钟。"""
+    seconds = int(delta.total_seconds())
+    if seconds < 60:
+        return f"{seconds} 秒"
+    if seconds < 3600:
+        return f"{seconds // 60} 分钟"
+    hours, minutes = divmod(seconds // 60, 60)
+    return f"{hours} 小时 {minutes} 分钟"
+
+
+def update_failures(rounds, failures, at, warn_after):
+    """一轮刷新后的取数失败记账（纯函数）。
+
+    某市场本轮失败：首轮记下起点，连续失败满 warn_after 时产生一次警告并标记，
+    此后不重复；本轮成功：计数清零，再出现长故障会重新计时、再次警告。状态表
+    按市场分别写入，市场之间互不牵连。
+    """
+    warnings = []
+    next_failures = dict(failures)
+    for round_ in rounds:
+        code = round_.market["code"]
+        state = failures[code]
+        if not round_.failed:
+            next_failures[code] = INITIAL_FAILURE
+            continue
+        since = state.since or at
+        warned = state.warned
+        if not warned and at - since >= warn_after:
+            warned = True
+            warnings.append(
+                FailureWarning(
+                    market=round_.market["name"],
+                    detail=round_.market["detail"],
+                    since=since,
+                    elapsed=at - since,
+                    error=round_.error,
+                )
+            )
+        next_failures[code] = FailureState(since=since, warned=warned)
+    return next_failures, tuple(warnings)
 
 
 def market_status(market, state):
@@ -261,12 +368,28 @@ def threshold_line(direction, threshold, unit, price, fired, rearm_ratio):
     )
 
 
-def render(market, quote, error, state, rearm_ratio):
-    """渲染单个市场的显示段落。"""
+def failure_lines(error, failure, at, warn_after):
+    """取数失败市场的控制台行：醒目的错误行与连续失败时长行。"""
+    note = "已弹出警告" if failure.warned else f"满 {duration_text(warn_after)}将弹出警告"
+    return [
+        f"  !! 数据源故障：{error}",
+        f"  已连续失败 {duration_text(at - failure.since)}（{note}）",
+    ]
+
+
+def render(round_, state, failure, at, rearm_ratio, warn_after):
+    """渲染单个市场的显示段落（纯函数）。
+
+    取数失败的轮次没有读数：不显示现价与距阈值距离（不用陈旧读数冒充行情），
+    状态记为「数据源故障」。failure 须为该轮记账后的失败状态（失败时起点必已置位）。
+    """
+    market = round_.market
     lines = [f"【{market['name']}】{market['detail']}"]
-    if error is not None:
-        lines.append(f"  数据源故障：{error}")
+    if round_.failed:
+        lines.extend(failure_lines(round_.error, failure, at, warn_after))
+        lines.append("  状态：数据源故障")
         return lines
+    quote = round_.quote
     lines.append(f"  现价：{quote.price:.2f} {market['unit']}")
     lines.append(f"  行情数据时间：{quote.time:%Y-%m-%d %H:%M:%S}")
     for direction, threshold in enabled_directions(market):
@@ -284,16 +407,16 @@ def render(market, quote, error, state, rearm_ratio):
     return lines
 
 
-def render_frame(markets, quotes, errors, states, rearm_ratio):
+def render_frame(rounds, states, failures, at, rearm_ratio, warn_after):
     """渲染整帧控制台内容：每个市场一段，段间空行分隔（纯函数）。
 
-    quotes、errors 均按市场代码索引；缺读数的市场由 errors 给出原因（数据源故障）。
+    states、failures 均按市场代码索引，由调用方在判定与记账之后传入。
     """
     lines = []
-    for market in markets:
-        code = market["code"]
+    for round_ in rounds:
+        code = round_.market["code"]
         lines.extend(
-            render(market, quotes.get(code), errors.get(code), states[code], rearm_ratio)
+            render(round_, states[code], failures[code], at, rearm_ratio, warn_after)
         )
         lines.append("")
     return lines
@@ -308,6 +431,15 @@ def alert_log_line(alert, at):
     )
 
 
+def warning_log_line(warning, at):
+    """故障警告日志行：说明是数据源故障而非行情，留在控制台滚动区。"""
+    return (
+        f"[{at:%Y-%m-%d %H:%M:%S}] 数据源故障警告：{warning.market}"
+        f"已连续取数失败 {duration_text(warning.elapsed)}"
+        f"（自 {warning.since:%H:%M:%S} 起；最近错误 {warning.error}）"
+    )
+
+
 # ======================= 弹窗与提示音（副作用层） =======================
 # 弹窗用一个常驻后台线程持有 Tk 根窗；主循环只往队列里投递提醒，
 # 因此弹窗既不阻塞轮询，也不与行情取数抢线程。
@@ -318,15 +450,17 @@ POPUP_FG = "#f0f0f0"
 POPUP_DIM = "#a8a8a8"
 POPUP_FAINT = "#787878"
 POPUP_FONT = "Microsoft YaHei UI"
-# 涨红跌绿，沿用国内行情习惯
+# 涨红跌绿，沿用国内行情习惯；琥珀色给故障警告，与行情涨跌区分开
 DIRECTION_COLOR = {UPSIDE: "#e5534b", DOWNSIDE: "#3fb950"}
+FAILURE_ACCENT = "#e6b450"
+ERROR_SHORT_LIMIT = 72  # 弹窗里错误文本的最大字符数，超长截断
 
 GWL_EXSTYLE = -20
 WS_EX_NOACTIVATE = 0x08000000
 WS_EX_TOOLWINDOW = 0x00000080
 SPI_GETWORKAREA = 0x0030
 
-_alerts = queue.Queue()
+_events = queue.Queue()
 _ui_ready = threading.Event()
 _ui_error = None
 _ui_root = None
@@ -340,11 +474,11 @@ def start_notifier():
     return ready and _ui_error is None
 
 
-def notify(alert):
-    """投递一次提醒：一声短提示音（可关）＋ 弹窗线程显示右下角小窗。"""
+def notify(event):
+    """投递一次提醒（价格越线或故障警告）：一声短提示音（可关）＋ 右下角小窗。"""
     if SOUND_ENABLED:
         _play_chime()
-    _alerts.put(alert)
+    _events.put(event)
 
 
 def _play_chime():
@@ -369,7 +503,7 @@ def _ui_main():
         # 根窗创建后 Windows 会稍迟送来一次激活（此时窗口已隐藏），过一小会儿再确认还给原窗口
         _keep_foreground(previous_foreground)
         _ui_root.after(250, lambda: _keep_foreground(previous_foreground))
-        _pump_alerts()
+        _pump_events()
     except Exception as exc:
         _ui_error = f"{type(exc).__name__}: {exc}"
         _ui_ready.set()
@@ -378,31 +512,29 @@ def _ui_main():
     _ui_root.mainloop()
 
 
-def _pump_alerts():
+def _pump_events():
     """弹窗线程内的定时泵：把队列中的提醒逐个弹出。"""
     while True:
         try:
-            alert = _alerts.get_nowait()
+            event = _events.get_nowait()
         except queue.Empty:
             break
         try:
-            _show_popup(alert)
+            _show_popup(event)
         except Exception as exc:  # 单个弹窗失败不拖垮弹窗线程
             print(f"弹窗显示失败：{type(exc).__name__}: {exc}", flush=True)
-    _ui_root.after(200, _pump_alerts)
+    _ui_root.after(200, _pump_events)
 
 
-def _show_popup(alert):
-    """右下角弹出一个无边框小窗：不抢焦点，点击即关，POPUP_DURATION 秒后自动消失。"""
-    accent = DIRECTION_COLOR.get(alert.direction, "#e6b450")
-    window = tk.Toplevel(_ui_root)
-    window.withdraw()
-    window.overrideredirect(True)
-    window.attributes("-topmost", True)
-    window.configure(bg=accent)
+def _short(text):
+    """截断过长的文本，避免把弹窗撑得比屏幕还宽。"""
+    if len(text) <= ERROR_SHORT_LIMIT:
+        return text
+    return text[: ERROR_SHORT_LIMIT - 1] + "…"
 
-    card = tk.Frame(window, bg=POPUP_BG, padx=18, pady=14)
-    card.pack(padx=2, pady=2)  # 2 像素的方向色描边
+
+def _fill_alert(card, alert, accent):
+    """价格提醒内容：方向、市场、现价、阈值、数据时间。"""
     head = tk.Frame(card, bg=POPUP_BG)
     head.pack(anchor="w")
     tk.Label(
@@ -425,6 +557,56 @@ def _show_popup(alert):
         card, text=f"数据时间 {alert.data_time:%Y-%m-%d %H:%M:%S}", fg=POPUP_DIM,
         bg=POPUP_BG, font=(POPUP_FONT, 10),
     ).pack(anchor="w")
+
+
+def _fill_failure(card, warning, accent):
+    """故障警告内容：市场、连续失败时长与最近错误，并说明这来自数据源、不是行情。"""
+    head = tk.Frame(card, bg=POPUP_BG)
+    head.pack(anchor="w")
+    tk.Label(
+        head, text="数据源故障", fg=accent, bg=POPUP_BG,
+        font=(POPUP_FONT, 15, "bold"),
+    ).pack(side="left")
+    tk.Label(
+        head, text=f"  {warning.market}", fg=POPUP_FG, bg=POPUP_BG,
+        font=(POPUP_FONT, 15, "bold"),
+    ).pack(side="left")
+    tk.Label(
+        card, text=f"已连续 {duration_text(warning.elapsed)}取数失败", fg=POPUP_FG,
+        bg=POPUP_BG, font=(POPUP_FONT, 22, "bold"),
+    ).pack(anchor="w", pady=(6, 2))
+    tk.Label(
+        card, text=f"{warning.detail} · 自 {warning.since:%H:%M:%S} 起", fg=POPUP_DIM,
+        bg=POPUP_BG, font=(POPUP_FONT, 10),
+    ).pack(anchor="w")
+    tk.Label(
+        card, text=f"最近错误：{_short(warning.error)}", fg=POPUP_DIM,
+        bg=POPUP_BG, font=(POPUP_FONT, 10),
+    ).pack(anchor="w")
+    tk.Label(
+        card, text="不是行情变化；恢复后自动继续提醒", fg=POPUP_DIM,
+        bg=POPUP_BG, font=(POPUP_FONT, 10),
+    ).pack(anchor="w")
+
+
+def _show_popup(event):
+    """右下角弹出一个无边框小窗：不抢焦点，点击即关，POPUP_DURATION 秒后自动消失。
+
+    价格提醒与故障警告共用窗口骨架，内容各自填充（描边色随内容变化）。
+    """
+    if isinstance(event, FailureWarning):
+        accent, fill = FAILURE_ACCENT, _fill_failure
+    else:
+        accent, fill = DIRECTION_COLOR.get(event.direction, FAILURE_ACCENT), _fill_alert
+    window = tk.Toplevel(_ui_root)
+    window.withdraw()
+    window.overrideredirect(True)
+    window.attributes("-topmost", True)
+    window.configure(bg=accent)
+
+    card = tk.Frame(window, bg=POPUP_BG, padx=18, pady=14)
+    card.pack(padx=2, pady=2)  # 2 像素的描边
+    fill(card, event, accent)
     tk.Label(
         card, text=f"点击关闭 · {POPUP_DURATION} 秒后自动消失", fg=POPUP_FAINT,
         bg=POPUP_BG, font=(POPUP_FONT, 9),
@@ -510,13 +692,14 @@ def _enable_dpi_awareness():
 
 
 def run():
-    """主循环：每 REFRESH_INTERVAL 秒取数、上屏并判定；越线即弹窗提醒，随后继续监视。"""
+    """主循环：每 REFRESH_INTERVAL 秒逐市场取数、上屏并判定；越线即弹窗提醒，
+    长时间取数失败弹一次故障警告，随后继续监视。"""
     if not start_notifier():
         sys.stdout.write(
             f"弹窗不可用（{_ui_error or '启动超时'}），提醒将只出现在控制台。{NEWLINE}"
         )
-    codes = [market["code"] for market in MARKETS]
     states = {market["code"]: INITIAL_STATE for market in MARKETS}
+    failures = {market["code"]: INITIAL_FAILURE for market in MARKETS}
     frame_lines = 0
     cycle = 0
     while True:
@@ -527,43 +710,28 @@ def run():
             f"本次刷新：{now:%Y-%m-%d %H:%M:%S}",
             "",
         ]
-        try:
-            raw = fetch_raw(codes)
-            fetch_error = None
-        except Exception as exc:  # 单轮取数失败不退出，下一轮自动重试
-            raw = ""
-            fetch_error = f"{type(exc).__name__}: {exc}"
-        quotes = {}
-        errors = {}
-        for market in MARKETS:
-            code = market["code"]
-            errors[code] = fetch_error
-            if fetch_error is None:
-                line = next((l for l in raw.splitlines() if code in l), "")
-                try:
-                    quotes[code] = parse_quote(line, code)
-                except QuoteError as exc:
-                    errors[code] = str(exc)
-        alerts, states = evaluate_markets(MARKETS, quotes, states, REARM_RATIO)
-        lines.extend(render_frame(MARKETS, quotes, errors, states, REARM_RATIO))
+        rounds = fetch_rounds(MARKETS)
+        alerts, states = evaluate_markets(rounds, states, REARM_RATIO)
+        failures, warnings = update_failures(rounds, failures, now, FAILURE_WARN_AFTER)
+        lines.extend(
+            render_frame(rounds, states, failures, now, REARM_RATIO, FAILURE_WARN_AFTER)
+        )
         delay = next_refresh_delay(now, REFRESH_INTERVAL)
         next_fire = now.replace(microsecond=0) + timedelta(seconds=delay)
         lines.append(
             f"下次刷新：{next_fire:%H:%M:%S}（约 {delay} 秒后，第 {cycle} 轮）"
         )
-        for alert in alerts:
-            notify(alert)
+        for event in (*alerts, *warnings):
+            notify(event)
         at = datetime.now()
+        log_lines = [alert_log_line(alert, at) for alert in alerts]
+        log_lines.extend(warning_log_line(warning, at) for warning in warnings)
         # 回到本帧起点并清掉旧内容，原地刷新；有提醒时让日志行落在旧帧的位置上
         if frame_lines:
             sys.stdout.write(f"\x1b[{frame_lines}A")
             frame_lines = 0
-        if alerts:
-            sys.stdout.write(
-                "\x1b[J"
-                + NEWLINE.join(alert_log_line(alert, at) for alert in alerts)
-                + NEWLINE
-            )
+        if log_lines:
+            sys.stdout.write("\x1b[J" + NEWLINE.join(log_lines) + NEWLINE)
         sys.stdout.write("\x1b[J" + NEWLINE.join(lines) + NEWLINE)
         sys.stdout.flush()
         frame_lines = len(lines)
