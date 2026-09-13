@@ -1,6 +1,6 @@
 # Spec: 金价监视与阈值弹窗提醒
 
-Status: ready-for-agent
+Status: done
 日期: 2026-09-12
 
 ## Problem Statement

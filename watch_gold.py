@@ -14,6 +14,7 @@ import threading
 import time
 import tkinter as tk
 import traceback
+import unicodedata
 import winsound
 from ctypes import wintypes
 from dataclasses import dataclass
@@ -440,6 +441,55 @@ def warning_log_line(warning, at):
     )
 
 
+# ---- 控制台写屏辅助：自己折行并数行，原地刷新的上移量才与屏幕一致 ----
+def _char_cells(ch):
+    """单个字符在控制台占用的列数：东亚宽字符与歧义字符按 2 列计。
+
+    歧义字符（如「—」）按 2 列是保守估计：多算只会让折行稍早一点；
+    少算才会让终端自行折行，行数失准、原地刷新错位。
+    """
+    return 2 if unicodedata.east_asian_width(ch) in ("W", "F", "A") else 1
+
+
+def display_cells(text):
+    """文本在控制台占用的列数（东亚宽字符按 2 列计）。"""
+    return sum(_char_cells(ch) for ch in text)
+
+
+def wrap_line(text, width):
+    """把一行折成不超过 width 列的多行；宽字符不拆开，空行占 1 行。
+
+    自己折行而不是交给终端：终端折行后的物理行数无法从逻辑行数推得，
+    原地刷新的上移量会因此错位（长报错行折行时实测残留旧帧碎片）。
+    """
+    rows = []
+    current = []
+    cells = 0
+    for ch in text:
+        ch_cells = _char_cells(ch)
+        if current and cells + ch_cells > width:
+            rows.append("".join(current))
+            current = []
+            cells = 0
+        current.append(ch)
+        cells += ch_cells
+    rows.append("".join(current))
+    return rows
+
+
+def wrap_lines(lines, width):
+    """逐行折行并拉平为实际写屏的行列表。"""
+    return [row for line in lines for row in wrap_line(line, width)]
+
+
+def terminal_width():
+    """控制台可视宽度（列）；非控制台（重定向、管道）时返回 None。"""
+    try:
+        return os.get_terminal_size().columns
+    except OSError:
+        return None
+
+
 # ======================= 弹窗与提示音（副作用层） =======================
 # 弹窗用一个常驻后台线程持有 Tk 根窗；主循环只往队列里投递提醒，
 # 因此弹窗既不阻塞轮询，也不与行情取数抢线程。
@@ -461,6 +511,7 @@ WS_EX_TOOLWINDOW = 0x00000080
 SPI_GETWORKAREA = 0x0030
 
 _events = queue.Queue()
+_ui_errors = queue.Queue()  # 弹窗线程的报错，由主循环取走做成日志行（见 run()）
 _ui_ready = threading.Event()
 _ui_error = None
 _ui_root = None
@@ -522,8 +573,19 @@ def _pump_events():
         try:
             _show_popup(event)
         except Exception as exc:  # 单个弹窗失败不拖垮弹窗线程
-            print(f"弹窗显示失败：{type(exc).__name__}: {exc}", flush=True)
+            # 不直接写屏（会打断主循环的原地刷新），交给主循环做成日志行
+            _ui_errors.put(f"{type(exc).__name__}: {exc}")
     _ui_root.after(200, _pump_events)
+
+
+def _drain_ui_errors():
+    """取走弹窗线程积累的报错（主循环调用，做成日志行）。"""
+    messages = []
+    while True:
+        try:
+            messages.append(_ui_errors.get_nowait())
+        except queue.Empty:
+            return messages
 
 
 def _short(text):
@@ -726,15 +788,27 @@ def run():
         at = datetime.now()
         log_lines = [alert_log_line(alert, at) for alert in alerts]
         log_lines.extend(warning_log_line(warning, at) for warning in warnings)
+        # 弹窗线程的报错也做成日志行，避免它直接写屏打断原地刷新
+        log_lines.extend(
+            f"[{at:%Y-%m-%d %H:%M:%S}] 弹窗显示失败：{message}"
+            for message in _drain_ui_errors()
+        )
+        # 自己折行：屏幕上的物理行数与这里的计数必须一致，上移量才算得准
+        width = terminal_width()
+        if width:
+            log_rows = wrap_lines(log_lines, width - 1)  # 留 1 列余量防边界差异
+            frame_rows = wrap_lines(lines, width - 1)
+        else:
+            log_rows, frame_rows = log_lines, lines  # 重定向输出：无光标可回，不折行
         # 回到本帧起点并清掉旧内容，原地刷新；有提醒时让日志行落在旧帧的位置上
         if frame_lines:
             sys.stdout.write(f"\x1b[{frame_lines}A")
             frame_lines = 0
-        if log_lines:
-            sys.stdout.write("\x1b[J" + NEWLINE.join(log_lines) + NEWLINE)
-        sys.stdout.write("\x1b[J" + NEWLINE.join(lines) + NEWLINE)
+        if log_rows:
+            sys.stdout.write("\x1b[J" + NEWLINE.join(log_rows) + NEWLINE)
+        sys.stdout.write("\x1b[J" + NEWLINE.join(frame_rows) + NEWLINE)
         sys.stdout.flush()
-        frame_lines = len(lines)
+        frame_lines = len(frame_rows)
         time.sleep(delay)
 
 
