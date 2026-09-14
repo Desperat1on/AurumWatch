@@ -34,6 +34,12 @@
 
 专用 Conda 环境 `aurum`（Python 3.13，`D:\App\Anaconda\anaconda3\envs\aurum`）：运行期第三方依赖仅 `requests`，构建期另装 `pyinstaller`。
 
+## Git 工作流
+
+采用 Git Flow：`master` 是发布分支（只存稳定版本，禁止直接提交），`develop` 是集成分支，功能走 `feature/*`，发布走 `release/*`，线上修复走 `hotfix/*`。
+
+**每次任务开始前**先看当前分支与工作区状态、判断任务类型、向用户说明建议的分支名与理由，得到确认后再动手。分支职责、禁止行为与提交要求的完整规则见 `docs/git-flow.md`——除非用户明确要求，不得绕过。
+
 ## Agent skills
 
 ### Issue tracker
