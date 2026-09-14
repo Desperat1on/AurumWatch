@@ -18,7 +18,7 @@ from aurumwatch.viewmodel import (
     TONE_WARN,
 )
 
-WINDOW_TITLE = "AurumWatch 金价监视"
+WINDOW_TITLE = "AurumWatch"  # 不单用「金价」：两个市场各有各的金价（见 CONTEXT.md）
 FONT = "Microsoft YaHei UI"
 HEADLINE_FONT = (FONT, 12, "bold")
 STAMP_FONT = (FONT, 9)
@@ -57,6 +57,7 @@ class MainWindow:
     """常驻行情面板：抬头、两个市场各一张卡片，底部 [立即刷新]。"""
 
     def __init__(self, on_refresh):
+        self._error_reported = False
         self._root = tk.Tk()
         self._root.title(WINDOW_TITLE)
         self._root.configure(bg=BG)
@@ -139,7 +140,14 @@ class MainWindow:
         self._root.destroy()
 
     def _report_callback_error(self, exc_type, value, tb):
-        """窗口回调里的异常：没有控制台可打印，用系统消息框说明，程序继续跑。"""
+        """窗口回调里的异常：没有控制台可打印，用系统消息框说明，程序继续跑。
+
+        只弹第一次：上屏回调 200ms 跑一次，每次出错都弹模态框会把人淹在对话框里。
+        之后的异常不再出声，留给落盘日志去记（见 ticket 05）；程序继续跑。
+        """
+        if self._error_reported:
+            return
+        self._error_reported = True
         show_error_box("".join(traceback.format_exception(exc_type, value, tb)))
 
 

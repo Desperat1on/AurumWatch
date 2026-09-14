@@ -137,7 +137,7 @@ def window_view(rounds, states, failures, at, *, interval, rearm_ratio, warn_aft
     delay = next_refresh_delay(at, interval)
     next_fire = at.replace(microsecond=0) + timedelta(seconds=delay)
     return WindowView(
-        headline=f"金价监视中——每 {interval} 秒刷新",
+        headline=f"监视中——每 {interval} 秒刷新",
         refreshed=f"本次刷新：{at:%Y-%m-%d %H:%M:%S}",
         next_refresh=f"下次刷新：{next_fire:%H:%M:%S}（约 {delay} 秒后）",
         markets=tuple(

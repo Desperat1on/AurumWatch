@@ -177,7 +177,7 @@ class WindowFrame(unittest.TestCase):
             rounds, states, INITIAL_FAILURES, AT,
             interval=INTERVAL, rearm_ratio=RATIO, warn_after=WARN_AFTER,
         )
-        self.assertEqual(view.headline, "金价监视中——每 60 秒刷新")
+        self.assertEqual(view.headline, "监视中——每 60 秒刷新")
         self.assertEqual(view.refreshed, "本次刷新：2026-09-12 12:00:00")
         self.assertEqual(view.next_refresh, "下次刷新：12:01:00（约 60 秒后）")
         self.assertEqual([market.name for market in view.markets], ["国内金价", "国际金价"])
