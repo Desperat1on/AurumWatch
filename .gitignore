@@ -2,3 +2,8 @@
 .vscode/
 __pycache__/
 *.pyc
+
+# 本机生成的配置（用户数据，默认值在源码里）：换电脑时拷 exe 与它自己那份
+config.json
+config.json.bak
+config.json.tmp

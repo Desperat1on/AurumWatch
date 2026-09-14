@@ -101,11 +101,14 @@ def evaluate_thresholds(market, quote, state, rearm_ratio):
     return tuple(alerts), TriggerState(armed=frozenset(armed))
 
 
-def evaluate_markets(rounds, states, rearm_ratio):
+def evaluate_markets(rounds, states, rearm_ratio, *, silent=frozenset()):
     """一轮刷新：对每个取到读数的市场独立判定（纯函数）。
 
     取数失败的市场（round 只有故障、没有读数）保持原状态、不产生提醒——
     故障不会被当成行情。新状态表按市场分别写入，市场之间互不覆盖、互不阻塞。
+
+    silent 里的市场这一轮只记账、不出声：用于「启动时若已越线立即提醒」关掉的情形
+    （见 ticket 03），已越线的方向照记「已触发」，等回落越过重新武装带再越线才提醒。
     """
     alerts = []
     next_states = dict(states)
@@ -116,5 +119,6 @@ def evaluate_markets(rounds, states, rearm_ratio):
         new_alerts, next_states[code] = evaluate_thresholds(
             round_.market, round_.quote, states[code], rearm_ratio
         )
-        alerts.extend(new_alerts)
+        if code not in silent:
+            alerts.extend(new_alerts)
     return tuple(alerts), next_states

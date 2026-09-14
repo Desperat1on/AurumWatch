@@ -14,8 +14,8 @@ from ctypes import wintypes
 
 from aurumwatch.alerts import DOWNSIDE, UPSIDE
 from aurumwatch.failures import FailureWarning, duration_text
-from aurumwatch.settings import POPUP_DURATION, SOUND_ENABLED
 
+POPUP_DURATION = 30  # 弹窗停留时长（秒），期间点击即关；可调项由 ticket 04 的外观设置接管
 POPUP_MARGIN = 24  # 距屏幕工作区右下角的留白（像素）
 POPUP_GAP = 10  # 多个弹窗上下叠放时的间距（像素）
 POPUP_BG = "#1e1f22"
@@ -47,9 +47,12 @@ def attach(root):
     _pump()
 
 
-def notify(event):
-    """投递一次提醒（价格越线或故障警告）：一声短提示音（可关）＋ 右下角小窗。"""
-    if SOUND_ENABLED:
+def notify(event, *, sound=True):
+    """投递一次提醒（价格越线或故障警告）：一声短提示音（可关）＋ 右下角小窗。
+
+    sound 由编排层按当前配置的快照传入：提示音开关一保存就生效，不用重启。
+    """
+    if sound:
         _play_chime()
     _events.put(event)
 

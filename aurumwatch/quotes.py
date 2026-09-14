@@ -12,10 +12,9 @@ from decimal import Decimal, InvalidOperation
 
 import requests
 
-from aurumwatch.settings import REQUEST_TIMEOUT
-
 API_URL = "https://hq.sinajs.cn/list={code}"
 HEADERS = {"Referer": "https://finance.sina.com.cn"}
+REQUEST_TIMEOUT = 10  # 单次请求超时（秒）：不由用户权衡，留在模块里（设置只收用户可调的项）
 
 _LINE_RE = re.compile(r'var hq_str_([A-Za-z0-9_]+)="([^"]*)"')
 

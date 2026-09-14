@@ -104,6 +104,59 @@ class SingleMarketEnabled(unittest.TestCase):
         )
 
 
+class StartupSilenceSwitch(unittest.TestCase):
+    """「启动时若已越线立即提醒」关掉时：首轮已越线的方向只记账、不出声。
+
+    静默不是「当作没越线」——状态照记已触发，等价格回落越过重新武装带、再次越线
+    才提醒，否则下一轮又会立刻提醒一次，开关等于没关。
+    """
+
+    def test_silenced_market_marks_the_direction_fired_without_alerting(self):
+        alerts, states = evaluate_markets(
+            rounds({"国内金价": "970.00", "国际金价": "4350.00"}),
+            INITIAL_STATES,
+            RATIO,
+            silent={"gds_AU9999"},
+        )
+        self.assertEqual(alerts, (), "首轮已越线，但这一轮不出声")
+        self.assertNotIn(UPSIDE, states["gds_AU9999"].armed, "已经越线：算作触发过了")
+        self.assertEqual(states["hf_XAU"], INITIAL_STATE, "没越线的市场照旧潜伏")
+
+    def test_silenced_market_alerts_again_after_pullback_and_recross(self):
+        _, states = evaluate_markets(
+            rounds({"国内金价": "970.00", "国际金价": "4350.00"}),
+            INITIAL_STATES,
+            RATIO,
+            silent={"gds_AU9999"},
+        )
+        _, states = evaluate_markets(
+            rounds({"国内金价": "940.00", "国际金价": "4350.00"}), states, RATIO
+        )  # 回落越过重新武装线：重新武装，本身不提醒
+        alerts, _ = evaluate_markets(
+            rounds({"国内金价": "960.00", "国际金价": "4350.00"}), states, RATIO
+        )
+        self.assertEqual(
+            [(alert.market, alert.direction) for alert in alerts], [("国内金价", UPSIDE)]
+        )
+
+    def test_silence_does_not_leak_to_the_other_market(self):
+        alerts, _ = evaluate_markets(
+            rounds({"国内金价": "970.00", "国际金价": "4410.00"}),
+            INITIAL_STATES,
+            RATIO,
+            silent={"gds_AU9999"},
+        )
+        self.assertEqual(
+            [(alert.market, alert.direction) for alert in alerts], [("国际金价", UPSIDE)]
+        )
+
+    def test_no_silence_means_the_first_reading_alerts(self):
+        alerts, _ = evaluate_markets(
+            rounds({"国内金价": "970.00", "国际金价": "4350.00"}), INITIAL_STATES, RATIO
+        )
+        self.assertEqual([alert.market for alert in alerts], ["国内金价"], "默认立即提醒")
+
+
 class StatesAreNotShared(unittest.TestCase):
     """一个市场的触发与重新武装，不动另一个市场的状态。"""
 

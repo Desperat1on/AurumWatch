@@ -9,6 +9,8 @@ import ctypes
 import tkinter as tk
 import traceback
 
+from aurumwatch import theme
+from aurumwatch.theme import BG, DIM, FALL, FG, RISE, WARN
 from aurumwatch.viewmodel import (
     TONE_DIM,
     TONE_FALL,
@@ -19,7 +21,7 @@ from aurumwatch.viewmodel import (
 )
 
 WINDOW_TITLE = "AurumWatch"  # 不单用「金价」：两个市场各有各的金价（见 CONTEXT.md）
-FONT = "Microsoft YaHei UI"
+FONT = theme.FONT
 HEADLINE_FONT = (FONT, 12, "bold")
 STAMP_FONT = (FONT, 9)
 CARD_TITLE_FONT = (FONT, 9)
@@ -27,14 +29,6 @@ PRICE_FONT = (FONT, 17, "bold")
 LINE_FONT = (FONT, 10)
 STATUS_FONT = (FONT, 10, "bold")
 NOTICE_FONT = (FONT, 9)
-BUTTON_FONT = (FONT, 10)
-
-BG = "#1e1f22"
-FG = "#f0f0f0"
-DIM = "#a8a8a8"
-RISE = "#e5534b"  # 涨红跌绿，沿用国内行情习惯
-FALL = "#3fb950"
-WARN = "#e6b450"  # 与行情涨跌区分开：状态异常、故障
 
 TONE_COLOR = {
     TONE_NORMAL: FG,
@@ -54,9 +48,9 @@ WRAP_WIDTH = 520
 
 
 class MainWindow:
-    """常驻行情面板：抬头、两个市场各一张卡片，底部 [立即刷新]。"""
+    """常驻行情面板：抬头、两个市场各一张卡片，底部 [设置][立即刷新]。"""
 
-    def __init__(self, on_refresh):
+    def __init__(self, on_refresh, on_settings):
         self._error_reported = False
         self._root = tk.Tk()
         self._root.title(WINDOW_TITLE)
@@ -83,11 +77,8 @@ class MainWindow:
             anchor="w", justify="left", wraplength=WRAP_WIDTH,
         )
         self._notice.pack(side="left")
-        tk.Button(
-            bottom, text="立即刷新", command=on_refresh, font=BUTTON_FONT,
-            bg="#2f3237", fg=FG, activebackground="#3a3e45", activeforeground=FG,
-            relief="flat", padx=14, pady=4, cursor="hand2",
-        ).pack(side="right")
+        theme.button(bottom, "立即刷新", on_refresh).pack(side="right")
+        theme.button(bottom, "设置", on_settings).pack(side="right", padx=(0, 8))
 
     @property
     def root(self):
