@@ -100,4 +100,4 @@ python -m ruff format .                 # 排版
 
 ## 许可
 
-本仓库尚未附许可证文件。在补充许可证之前，默认保留所有权利。
+[MIT](LICENSE) © 2026 Desperat1on
