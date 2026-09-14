@@ -30,6 +30,15 @@
 
 测试只盖**纯函数层**（触发判定与故障记账、配置规范化与校验、解析与刷新对齐、视图模型）。窗口的观感与交互、预览与真实弹窗是否一致、取数、单实例、开机自启、打包产物都在缝外，靠手动验收（见 spec 的 Testing Decisions）。
 
+## 静态检查
+
+```bash
+"D:/App/Anaconda/anaconda3/envs/aurum/python.exe" -m ruff check .     # lint
+"D:/App/Anaconda/anaconda3/envs/aurum/python.exe" -m ruff format .    # 排版
+```
+
+ruff 装在 `aurum` 环境里（`pip install --no-user ruff`），配置在 `ruff.toml`。那里的规则集是**故意收窄**的，别改成 ruff 的默认集——默认集在本仓库报出 104 处，多数是本项目刻意的设计而非缺陷，原因写在 `ruff.toml` 顶部。
+
 ## 环境
 
 专用 Conda 环境 `aurum`（Python 3.13，`D:\App\Anaconda\anaconda3\envs\aurum`）：运行期第三方依赖仅 `requests`，构建期另装 `pyinstaller`。
