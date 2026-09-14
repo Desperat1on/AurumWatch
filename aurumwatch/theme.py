@@ -74,9 +74,13 @@ class Theme:
         size = self.base_size + offset
         return (self.font_family, size, "bold") if bold else (self.font_family, size)
 
-    def wrap(self, width_at_base):
-        """折行宽度：文字在大字号下占的地方也大，一行能放的字数才不至于变少。"""
-        return round(width_at_base * self.base_size / BASE_SIZE)
+    def scaled(self, pixels_at_base):
+        """一个按基准字号标定的像素量（折行宽度、窗口最小尺寸）：字号大了等比放大。
+
+        文字在大字号下占的地方也大，折行宽度跟着放，一行能放的字数才不至于变少；
+        窗口的最小尺寸同理，不然字号一调大，最小尺寸就形同虚设。
+        """
+        return round(pixels_at_base * self.base_size / BASE_SIZE)
 
     # —— 控件样式：两个窗口的按钮、输入框长相一致，改外观时也好整批重涂 ——
 

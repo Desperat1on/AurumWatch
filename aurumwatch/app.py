@@ -37,15 +37,16 @@ def run():
     notices = store.load()
     wake = threading.Event()  # [立即刷新] 用它提前结束等待中的取数线程
     frames = queue.Queue()
+    theme = Theme.from_appearance(store.values["appearance"])
     window = MainWindow(
         on_refresh=wake.set,
         on_settings=lambda: open_settings(
             window.root, store, on_saved=lambda values: _applied(window, values)
         ),
-        theme=Theme.from_appearance(store.values["appearance"]),
+        theme=theme,
     )
     attach(window.root)
-    set_theme(Theme.from_appearance(store.values["appearance"]))
+    set_theme(theme)  # 弹窗与主窗口用同一份外观：只造一处，不会各拿各的
     if notices:  # 配置回退这类事，ticket 05 起并入事件记录与落盘日志
         window.show_notice("；".join(notices))
     threading.Thread(

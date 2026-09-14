@@ -55,7 +55,14 @@ COLOR_PATTERN = re.compile(r"#[0-9a-fA-F]{6}")
 SYSTEM_SOUND = "system"
 CUSTOM_SOUND = "custom"
 SOUND_CHOICES = ((SYSTEM_SOUND, "系统提示音"), (CUSTOM_SOUND, "自定义 WAV 文件"))
+SOUND_NAMES = tuple(name for name, _ in SOUND_CHOICES)
 WAV_SUFFIX = ".wav"
+
+# 开关项：字段名与中文说法。规范化（认不出就回退默认）与校验（不是布尔不许保存）
+# 共用一份，免得两边走偏（见 _flag_errors 的说明）。
+SOUND_FLAGS = (("enabled", "提示音开关"),)
+APPEARANCE_FLAGS = (("topmost", "主窗口置顶"),)
+ADVANCED_FLAGS = (("alert_on_start", "启动时若已越线立即提醒"),)
 
 
 @dataclass(frozen=True)
@@ -232,6 +239,18 @@ def _read_flags(raw, values, notices, fields):
         values[key] = raw_value
 
 
+def _flag_errors(errors, section, given, fields):
+    """开关项的校验：不是布尔的挂到对应字段上（缺这一项不算错，按默认值走）。
+
+    与 `_read_flags` 同用一份字段表：这两边口径分叉过一次——`validate` 放行的
+    非布尔开关，`normalize` 读回来会当成坏值回退，等于存了个自己都不认的配置。
+    """
+    for key, label in fields:
+        value = given.get(key)
+        if value is not None and not isinstance(value, bool):
+            errors[field_id(section, key)] = f"{label}只能是 true 或 false"
+
+
 def _read_numbers(raw, values, notices, fields):
     """一组数值项：读不出的、不合要求的都回退默认值并说明。"""
     for field in fields:
@@ -251,9 +270,7 @@ def _read_numbers(raw, values, notices, fields):
 def _read_advanced(raw, values, notices):
     """高级项：读不出的、不合要求的都回退默认值并说明。"""
     _read_numbers(raw, values, notices, ADVANCED_FIELDS)
-    _read_flags(
-        raw, values, notices, (("alert_on_start", "启动时若已越线立即提醒"),)
-    )
+    _read_flags(raw, values, notices, ADVANCED_FLAGS)
 
 
 def _read_sound(raw, values, notices):
@@ -262,10 +279,10 @@ def _read_sound(raw, values, notices):
     自定义音效必须落在一个 .wav 路径上（winsound 只放 WAV）：路径读不出、或不是
     .wav 时，整条设定退回系统提示音。路径留着——好让人回来改，而不是对着空白框发呆。
     """
-    _read_flags(raw, values, notices, (("enabled", "提示音开关"),))
+    _read_flags(raw, values, notices, SOUND_FLAGS)
     choice = raw.get("choice")
     if choice is not None:
-        if choice in dict(SOUND_CHOICES):
+        if choice in SOUND_NAMES:
             values["choice"] = choice
         else:
             notices.append("音效只能选系统提示音或自定义 WAV 文件，已改用系统提示音")
@@ -307,7 +324,7 @@ def _read_appearance(raw, values, notices):
             notices.append(
                 f"弹窗位置须是{CORNER_TEXT}之一，已按{corner_text(values['popup_corner'])}处理"
             )
-    _read_flags(raw, values, notices, (("topmost", "主窗口置顶"),))
+    _read_flags(raw, values, notices, APPEARANCE_FLAGS)
 
 
 def is_color(text):
@@ -385,14 +402,18 @@ def validate(values):
     if not (isinstance(font, str) and font.strip()):
         errors[field_id("appearance", "font")] = "字体须填字体名称（例：Microsoft YaHei UI）"
     _number_errors(errors, "appearance", appearance, APPEARANCE_NUMBERS)
+    _flag_errors(errors, "appearance", appearance, APPEARANCE_FLAGS)
     if appearance.get("popup_corner") not in CORNER_NAMES:
         errors[field_id("appearance", "popup_corner")] = f"弹窗位置须为{CORNER_TEXT}之一"
     sound = _as_dict(values.get("sound"))
-    if sound.get("choice") not in dict(SOUND_CHOICES):
+    _flag_errors(errors, "sound", sound, SOUND_FLAGS)
+    if sound.get("choice") not in SOUND_NAMES:
         errors[field_id("sound", "choice")] = "音效只能选系统提示音或自定义 WAV 文件"
     elif sound["choice"] == CUSTOM_SOUND and not is_wav(sound.get("file")):
         errors[field_id("sound", "file")] = "选择自定义音效时须填 .wav 文件路径"
-    _number_errors(errors, "advanced", _as_dict(values.get("advanced")), ADVANCED_FIELDS)
+    advanced = _as_dict(values.get("advanced"))
+    _number_errors(errors, "advanced", advanced, ADVANCED_FIELDS)
+    _flag_errors(errors, "advanced", advanced, ADVANCED_FLAGS)
     return errors
 
 

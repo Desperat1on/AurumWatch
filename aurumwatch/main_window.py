@@ -35,12 +35,12 @@ class MainWindow:
     """常驻行情面板：抬头、两个市场各一张卡片，底部 [设置][立即刷新]。"""
 
     def __init__(self, on_refresh, on_settings, theme):
-        self._theme = theme
         self._view = None  # 最近一帧：换外观时照它重画一次，不必等下一轮刷新
+        # self._theme 由末尾的 apply() 统一维护：构造与改外观走同一条路，不会两处各写一份
         self._error_reported = False
         self._root = tk.Tk()
         self._root.title(WINDOW_TITLE)
-        self._root.minsize(*MIN_SIZE)
+        self._root.minsize(*(theme.scaled(side) for side in MIN_SIZE))
         self._root.protocol("WM_DELETE_WINDOW", self._close)
         self._root.report_callback_exception = self._report_callback_error
 
@@ -89,7 +89,7 @@ class MainWindow:
             frame.configure(bg=theme.bg)
         self._notice.configure(
             bg=theme.bg, fg=theme.warn, font=theme.font(NOTICE_STEP),
-            wraplength=theme.wrap(WRAP_AT_BASE),
+            wraplength=theme.scaled(WRAP_AT_BASE),
         )
         for button in (self._refresh_button, self._settings_button):
             theme.style_button(button)
@@ -134,13 +134,13 @@ class MainWindow:
                     PRICE_STEP if line.tone == TONE_PRICE else LINE_STEP,
                     bold=line.tone == TONE_PRICE,
                 ),
-                anchor="w", justify="left", wraplength=theme.wrap(WRAP_AT_BASE),
+                anchor="w", justify="left", wraplength=theme.scaled(WRAP_AT_BASE),
             ).pack(anchor="w", fill="x")
         tk.Label(
             card, text=f"状态：{market.status.text}", bg=theme.bg,
             fg=theme.color(market.status.tone),
             font=theme.font(STATUS_STEP, bold=True), anchor="w", justify="left",
-            wraplength=theme.wrap(WRAP_AT_BASE),
+            wraplength=theme.scaled(WRAP_AT_BASE),
         ).pack(anchor="w", pady=(4, 0))
 
     def _close(self):

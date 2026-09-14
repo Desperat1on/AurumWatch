@@ -43,7 +43,7 @@ _ui_errors = queue.Queue()  # 弹窗与提示音的报错，每条自带说法�
 _root = None
 _theme = Theme.from_appearance(default_values()["appearance"])  # 编排层接手前的默认外观
 _open_popups = []
-_reported = {}  # 说过的音效问题（同一条不每轮重复），见 _report
+_reported = set()  # 说过的音效问题（同一条不每轮重复），见 _report
 
 
 def attach(root):
@@ -57,11 +57,6 @@ def set_theme(theme):
     """换一套外观：此后弹出的窗口照新的画（已经弹出来的不动）。"""
     global _theme
     _theme = theme
-
-
-def current_theme():
-    """当前外观：设置窗口拿它起预览、真实弹窗拿它绘制。"""
-    return _theme
 
 
 def notify(event, *, sound=None):
@@ -115,11 +110,12 @@ def sample_alert():
     )
 
 
-def build_card(parent, event, theme, seconds):
+def build_card(parent, event, theme):
     """把一张提醒卡片摆进 parent，返回最外层（真实弹窗与设置窗口的预览共用这一套绘制）。
 
-    卡片整个包在 2 像素的描边里：价格提醒用涨破/跌破色，故障警告用警告色。
-    seconds 是卡片脚注上写的停留秒数——真实弹窗就停这么久，预览写的就是待保存的值。
+    卡片整个包在 2 像素的描边里：价格提醒用涨破/跌破色，故障警告用警告色。脚注上
+    的停留秒数取自 theme：真实弹窗就停这么久、预览写的就是待保存的值，两处同一个
+    来源，卡片上印的秒数不会与实际停留对不上。
     """
     accent, fill = _look(event, theme)
     border = tk.Frame(parent, bg=accent)
@@ -127,7 +123,7 @@ def build_card(parent, event, theme, seconds):
     card.pack(padx=2, pady=2)
     fill(card, event, theme, accent)
     tk.Label(
-        card, text=f"点击关闭 · {seconds} 秒后自动消失", fg=theme.faint,
+        card, text=f"点击关闭 · {theme.popup_seconds} 秒后自动消失", fg=theme.faint,
         bg=theme.bg, font=theme.font(FOOT_STEP),
     ).pack(anchor="w", pady=(8, 0))
     return border
@@ -170,9 +166,9 @@ def _report(message):
 
     换过音效、或设置里[试听]之后再出问题，说法不一样，自然会再报一次。
     """
-    if _reported.get(message):
+    if message in _reported:
         return
-    _reported[message] = True
+    _reported.add(message)
     _ui_errors.put(message)
 
 
@@ -295,7 +291,7 @@ def _show_popup(event, theme=None):
     window.overrideredirect(True)
     window.attributes("-topmost", True)
     window.configure(bg=theme.bg)
-    build_card(window, event, theme, theme.popup_seconds).pack()
+    build_card(window, event, theme).pack()
 
     def close(event=None):
         if window.winfo_exists():

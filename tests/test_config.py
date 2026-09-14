@@ -429,6 +429,31 @@ class ValidatePointsAtTheOffendingField(unittest.TestCase):
         values["sound"]["file"] = "D:/Sounds/叮.wav"
         self.assertEqual(validate(values), {})
 
+    def test_switches_only_take_booleans(self):
+        """开关项：不是布尔的写法不许保存。
+
+        读回来会被 `normalize` 当成坏值回退，等于存了一份自己都不认的配置。
+        """
+        cases = (
+            ("sound", "enabled", "yes"),
+            ("appearance", "topmost", 1),
+            ("advanced", "alert_on_start", "true"),
+        )
+        for section, key, bad in cases:
+            with self.subTest(section=section, key=key, bad=bad):
+                values = default_values()
+                values[section][key] = bad
+                errors = validate(values)
+                self.assertEqual(list(errors), [field_id(section, key)])
+                self.assertIn("true 或 false", errors[field_id(section, key)])
+
+    def test_a_missing_switch_is_not_an_error(self):
+        """缺的开关按默认值走：配置文件缺字段是常态，不是错。"""
+        values = default_values()
+        del values["appearance"]["topmost"]
+        del values["sound"]["enabled"]
+        self.assertEqual(validate(values), {})
+
     def test_a_custom_sound_with_no_file_at_all_is_rejected(self):
         values = default_values()
         values["sound"].update({"choice": "custom", "file": "  "})

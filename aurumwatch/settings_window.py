@@ -79,6 +79,7 @@ class SettingsWindow:
         self._numbers = {}  # 字段标识 → 数字框上的文本变量（外观项要即时反映到预览）
         self._flags = {}  # 字段标识 → 勾选框
         self._errors = {}  # 字段标识 → 红字标签
+        self._filling = False  # 是否正在成批填控件（填的过程里不重画预览）
         self._colors = {}  # 颜色键（bg/fg/rise/fall）→ 色块按钮上的色号
         self._swatches = {}  # 颜色键 → 色块按钮
 
@@ -203,7 +204,7 @@ class SettingsWindow:
         self._notice = tk.Label(
             bottom, text="", bg=self._theme.bg, fg=self._theme.rise,
             font=self._theme.font(-1), anchor="w", justify="left",
-            wraplength=self._theme.wrap(ERROR_WRAP_AT_BASE),
+            wraplength=self._theme.scaled(ERROR_WRAP_AT_BASE),
         )
         self._notice.pack(side="left")
         for text, command, pad in (
@@ -334,7 +335,7 @@ class SettingsWindow:
         label = tk.Label(
             section, text="", bg=self._theme.bg, fg=self._theme.rise,
             font=self._theme.font(-1), anchor="w", justify="left",
-            wraplength=self._theme.wrap(ERROR_WRAP_AT_BASE),
+            wraplength=self._theme.scaled(ERROR_WRAP_AT_BASE),
         )
         label.grid(row=row, column=2, sticky="w")
         self._errors[field] = label
@@ -345,7 +346,7 @@ class SettingsWindow:
         tk.Label(
             section, text=text, bg=self._theme.bg, fg=self._theme.dim,
             font=self._theme.font(-1), anchor="w", justify="left",
-            wraplength=self._theme.wrap(ERROR_WRAP_AT_BASE),
+            wraplength=self._theme.scaled(ERROR_WRAP_AT_BASE),
         ).grid(row=row, column=0, columnspan=3, sticky="w", pady=(4, 0))
 
     def _preview_row(self, parent):
@@ -359,7 +360,7 @@ class SettingsWindow:
         self._preview_hint = tk.Label(
             parent, text=PREVIEW_HINT, bg=self._theme.bg, fg=self._theme.dim,
             font=self._theme.font(-1), anchor="w", justify="left",
-            wraplength=self._theme.wrap(ERROR_WRAP_AT_BASE),
+            wraplength=self._theme.scaled(ERROR_WRAP_AT_BASE),
         )
         self._preview_hint.pack(anchor="w", pady=(6, 0))
         self._theme.button(parent, "试弹一次", self.test_popup).pack(
@@ -400,6 +401,7 @@ class SettingsWindow:
 
     def _fill(self, values):
         """按一份配置填一遍控件（打开时、[恢复默认]时各来一次）。"""
+        self._filling = True  # 填的过程里别一次次重画预览，填完再画（见 _appearance_changed）
         for field, entry in self._text.items():
             entry.delete(0, "end")
             entry.insert(0, as_text(_field_value(values, field)))
@@ -414,6 +416,7 @@ class SettingsWindow:
         self._sync_sound_row()
         self._show_errors({})
         self._notice.configure(text="")
+        self._filling = False
         self._refresh_preview()
 
     def _draft(self):
@@ -429,14 +432,7 @@ class SettingsWindow:
                 for market in MARKET_CATALOG
             },
             "sound": self._sound_draft(),
-            "appearance": {
-                **{key: variable.get() for key, variable in self._colors.items()},
-                "font": self._font.get(),
-                "base_size": self._numbers[BASE_SIZE_FIELD].get(),
-                "popup_seconds": self._numbers[POPUP_SECONDS_FIELD].get(),
-                "popup_corner": self._corner.get(),
-                "topmost": self._flags[TOPMOST_FLAG].get(),
-            },
+            "appearance": self._appearance_draft(),
             "advanced": {
                 **{
                     field.key: self._text[field_id("advanced", field.key)].get()
@@ -444,6 +440,17 @@ class SettingsWindow:
                 },
                 "alert_on_start": self._flags[STARTUP_FLAG].get(),
             },
+        }
+
+    def _appearance_draft(self):
+        """控件上的外观段：预览与[试弹一次]只认这一段，不必把整份配置重走一遍。"""
+        return {
+            **{key: variable.get() for key, variable in self._colors.items()},
+            "font": self._font.get(),
+            "base_size": self._numbers[BASE_SIZE_FIELD].get(),
+            "popup_seconds": self._numbers[POPUP_SECONDS_FIELD].get(),
+            "popup_corner": self._corner.get(),
+            "topmost": self._flags[TOPMOST_FLAG].get(),
         }
 
     def _sound_draft(self):
@@ -454,15 +461,16 @@ class SettingsWindow:
             "file": self._sound_file.get().strip(),
         }
 
-    def _draft_theme(self, draft=None):
-        """草稿 → 一份可用主题：还没填对的项按默认值算，预览不因此消失。"""
-        return Theme.from_appearance(normalize(draft or self._draft())[0]["appearance"])
+    def _draft_theme(self, appearance=None):
+        """外观草稿 → 一份可用主题：还没填对的项按默认值算，预览不因此消失。"""
+        draft = {"appearance": appearance if appearance is not None else self._appearance_draft()}
+        return Theme.from_appearance(normalize(draft)[0]["appearance"])
 
-    def _appearance_errors(self, draft):
+    def _appearance_errors(self, appearance):
         """外观项里还没填对的那些：预览按默认值画，得说明一句。"""
         return {
             field: text
-            for field, text in validate(draft).items()
+            for field, text in validate({"appearance": appearance}).items()
             if field.startswith("appearance.")
         }
 
@@ -482,22 +490,26 @@ class SettingsWindow:
         for key, variable in self._colors.items():
             variable.trace_add("write", lambda *_args, key=key: self._paint_swatch(key))
         for variable in self._numbers.values():
-            variable.trace_add("write", lambda *_args: self._refresh_preview())
-        self._font.trace_add("write", lambda *_args: self._refresh_preview())
+            variable.trace_add("write", lambda *_args: self._appearance_changed())
+        self._font.trace_add("write", lambda *_args: self._appearance_changed())
 
     def _refresh_preview(self):
         """按当前（可能还没保存的）外观重画预览卡片——用的就是弹窗那套绘制函数。"""
-        draft = self._draft()
-        errors = self._appearance_errors(draft)
+        appearance = self._appearance_draft()
+        errors = self._appearance_errors(appearance)
         for child in self._preview.winfo_children():
             child.destroy()
         self._preview_hint.configure(
             text="；".join(errors.values()) + "（预览暂按默认值画）" if errors else PREVIEW_HINT
         )
-        theme = self._draft_theme(draft)
         popup.build_card(
-            self._preview, popup.sample_alert(), theme, theme.popup_seconds
+            self._preview, popup.sample_alert(), self._draft_theme(appearance)
         ).pack()
+
+    def _appearance_changed(self):
+        """外观控件动了：[填控件]时先不画，填完一次画好——开窗与[恢复默认]各要填十来个。"""
+        if not self._filling:
+            self._refresh_preview()
 
     def _paint_swatch(self, key):
         """把色块涂成当前颜色（色号写在色块上），并顺带重画预览。"""
@@ -508,7 +520,7 @@ class SettingsWindow:
         self._swatches[key].configure(
             text=code, bg=color, fg=text, activebackground=color, activeforeground=text,
         )
-        self._refresh_preview()
+        self._appearance_changed()
 
     def _pick_color(self, key):
         """点色块开系统取色器；[取消]即不改动。"""

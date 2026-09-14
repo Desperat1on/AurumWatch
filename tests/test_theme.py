@@ -134,9 +134,14 @@ class FontTiersFollowTheBaseSize(unittest.TestCase):
     def test_the_default_base_size_is_the_one_the_old_windows_were_built_on(self):
         self.assertEqual(theme_of().font(), ("Microsoft YaHei UI", BASE_SIZE))
 
-    def test_wrapping_grows_with_the_base_size(self):
-        self.assertEqual(theme_of(base_size=BASE_SIZE).wrap(520), 520, "默认字号下原样")
-        self.assertEqual(theme_of(base_size=15).wrap(520), 780, "字大了，一行也得更宽")
+    def test_pixel_measures_grow_with_the_base_size(self):
+        """折行宽度与窗口最小尺寸都按基准字号放大，字号调大后不会白调。"""
+        default = theme_of(base_size=BASE_SIZE)
+        larger = theme_of(base_size=15)
+        self.assertEqual(default.scaled(520), 520, "默认字号下原样")
+        self.assertEqual(larger.scaled(520), 780, "字大了，一行也得更宽")
+        self.assertEqual(default.scaled(320), 320, "窗口最小高度同理")
+        self.assertEqual(larger.scaled(320), 480)
 
 
 if __name__ == "__main__":
