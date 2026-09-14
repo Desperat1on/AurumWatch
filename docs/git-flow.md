@@ -50,7 +50,7 @@ git-flow（AVH Edition 1.12.3）已安装并配置完毕，可直接使用：
 
 ```bash
 git flow feature start <name>     # 从 develop 拉出 feature/<name>
-git flow feature finish <name>    # --no-ff 合回 develop；默认删掉该分支，要保留加 -k
+git flow feature finish <name>    # 合回 develop（能快进就快进）；默认删掉该分支，要保留加 -k
 
 git flow release start 0.1.0      # 从 develop 拉出 release/0.1.0
 git flow release finish 0.1.0     # 合入 master + 打 tag v0.1.0 + 回合并 develop
@@ -58,5 +58,7 @@ git flow release finish 0.1.0     # 合入 master + 打 tag v0.1.0 + 回合并 d
 git flow hotfix start 0.1.1       # 从 master 拉出 hotfix/0.1.1
 git flow hotfix finish 0.1.1      # 合入 master + 打 tag v0.1.1 + 回合并 develop
 ```
+
+本仓库**不强制 `--no-ff`**：git-flow 1.12.3 的 `finish` 能快进就快进，而且没有对应配置项——想要合并点只能每次显式传 `--no-ff`。`develop` 因此保持线性历史，与迁移前的 28 个提交一致。
 
 测试命令见 `CLAUDE.md` 的「测试」一节（目前本仓库可用的自动检查只有该单元测试套件）。
