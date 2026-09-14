@@ -118,35 +118,67 @@ class TargetOnlyExistsWhenPackaged(unittest.TestCase):
 
 
 class EnabledFollowsTheRegistry(unittest.TestCase):
-    """开关的状态就是注册表的状态：值在即开。"""
+    """开关说的是「这一份会不会开机自启」：值在、且指向本次运行的 exe 才算开。"""
 
     def test_missing_key_counts_as_off(self):
-        with with_registry(FakeRegistry(key_exists=False)):
+        with with_registry(FakeRegistry(key_exists=False)), frozen():
             self.assertFalse(autostart.enabled())
 
     def test_missing_value_counts_as_off(self):
-        with with_registry(FakeRegistry({"别的程序": "x"})):
+        with with_registry(FakeRegistry({"别的程序": "x"})), frozen():
             self.assertFalse(autostart.enabled())
 
     def test_our_value_counts_as_on(self):
-        with with_registry(FakeRegistry({autostart.VALUE_NAME: '"D:\\x.exe"'})):
+        with with_registry(FakeRegistry({autostart.VALUE_NAME: f'"{EXE}"'})), frozen():
             self.assertTrue(autostart.enabled())
+
+    def test_an_unquoted_value_still_counts_as_ours(self):
+        # 手改过注册表（或早先的版本）写法不同，不该因此说「没开」
+        with with_registry(FakeRegistry({autostart.VALUE_NAME: str(EXE)})), frozen():
+            self.assertTrue(autostart.enabled())
+
+    def test_another_copy_of_the_app_counts_as_off(self):
+        # exe 搬了家、重新打包换了位置：这一份开机时并不会起来，如实显示未勾选
+        with with_registry(
+            FakeRegistry({autostart.VALUE_NAME: '"D:\\旧位置\\AurumWatch.exe"'})
+        ), frozen():
+            self.assertFalse(autostart.enabled())
+
+    def test_source_run_is_off_whatever_the_registry_says(self):
+        with with_registry(FakeRegistry({autostart.VALUE_NAME: f'"{EXE}"'})):
+            self.assertFalse(autostart.enabled(), "源码运行没有可自启的 exe")
 
     def test_a_read_failure_counts_as_off(self):
         # 读不出来就当没有：这是「有就写、没有就当没有」的开关，不该因此挡住窗口
-        with with_registry(FakeRegistry()), mock.patch.object(
+        with with_registry(FakeRegistry()), frozen(), mock.patch.object(
             FakeRegistry, "OpenKey", side_effect=PermissionError("拒绝访问")
         ):
             self.assertFalse(autostart.enabled())
 
 
+class PointsAtComparesCommandLines(unittest.TestCase):
+    """那一条启动命令是不是就跑这个程序（纯函数）：引号、大小写、斜杠都不论。"""
+
+    def test_quoted_and_bare_both_match(self):
+        self.assertTrue(autostart.points_at(f'"{EXE}"', EXE))
+        self.assertTrue(autostart.points_at(str(EXE), EXE))
+
+    def test_case_and_slashes_do_not_matter(self):
+        self.assertTrue(autostart.points_at("d:/apps/aurumwatch/AURUMWATCH.EXE", EXE))
+
+    def test_a_different_program_does_not_match(self):
+        self.assertFalse(autostart.points_at('"D:\\别的\\AurumWatch.exe"', EXE))
+        self.assertFalse(autostart.points_at("", EXE))
+        self.assertFalse(autostart.points_at(None, EXE), "不是文本就当没开")
+
+
 class TogglingWritesAndRemoves(unittest.TestCase):
-    """勾选写进 Run 键（值为 exe 的绝对路径），取消删干净。"""
+    """勾选写进 Run 键（值为本次运行的 exe），取消删干净。"""
 
     def test_checking_writes_the_quoted_exe_path(self):
         registry = FakeRegistry()
-        with with_registry(registry):
-            autostart.set_enabled(True, EXE)
+        with with_registry(registry), frozen():
+            autostart.set_enabled(True)
         self.assertEqual(
             registry.written,
             [(autostart.VALUE_NAME, registry.REG_SZ, f'"{EXE}"')],
@@ -154,15 +186,22 @@ class TogglingWritesAndRemoves(unittest.TestCase):
         self.assertEqual(registry.values, {autostart.VALUE_NAME: f'"{EXE}"'})
 
     def test_unchecking_removes_it(self):
+        registry = FakeRegistry({autostart.VALUE_NAME: f'"{EXE}"'})
+        with with_registry(registry):
+            autostart.set_enabled(False)
+        self.assertEqual(registry.values, {}, "取消之后注册表里不留东西")
+
+    def test_unchecking_clears_a_stale_entry_too(self):
+        # 旧位置留下的那一项：没勾（这一份确实不会自启）时保存，就该把它清掉
         registry = FakeRegistry({autostart.VALUE_NAME: '"D:\\旧位置\\AurumWatch.exe"'})
         with with_registry(registry):
-            autostart.set_enabled(False, EXE)
-        self.assertEqual(registry.values, {}, "取消之后注册表里不留东西")
+            autostart.set_enabled(False)
+        self.assertEqual(registry.values, {})
 
     def test_unchecking_an_absent_entry_is_fine(self):
         registry = FakeRegistry({}, key_exists=False)
         with with_registry(registry):
-            autostart.set_enabled(False, EXE)  # 本来就没有：要的就是这个结果
+            autostart.set_enabled(False)  # 本来就没有：要的就是这个结果
         self.assertEqual(registry.values, {})
 
     def test_source_run_cannot_be_checked(self):
@@ -173,19 +212,13 @@ class TogglingWritesAndRemoves(unittest.TestCase):
                 autostart.set_enabled(True)
         self.assertEqual(registry.written, [], "一个字都不许写进注册表")
 
-    def test_packaged_run_takes_the_target_from_the_exe(self):
-        registry = FakeRegistry()
-        with with_registry(registry), frozen("D:/Apps/AurumWatch/AurumWatch.exe"):
-            autostart.set_enabled(True)
-        self.assertEqual(registry.values, {autostart.VALUE_NAME: f'"{EXE}"'})
-
     def test_a_write_failure_reaches_the_caller(self):
         # 写不进去（权限等）时得让设置窗口说得出原因，不能悄悄当成设好了
-        with with_registry(FakeRegistry()), mock.patch.object(
+        with with_registry(FakeRegistry()), frozen(), mock.patch.object(
             FakeRegistry, "SetValueEx", side_effect=PermissionError("拒绝访问")
         ):
             with self.assertRaises(OSError):
-                autostart.set_enabled(True, EXE)
+                autostart.set_enabled(True)
 
 
 if __name__ == "__main__":

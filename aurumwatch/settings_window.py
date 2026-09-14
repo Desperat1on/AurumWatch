@@ -386,12 +386,18 @@ class SettingsWindow:
         return label
 
     def _hint(self, section, row, text):
-        """一组设置下的口头说明（比红字那一列宽：它下面没有别的控件）。"""
-        tk.Label(
-            section, text=text, bg=self._theme.bg, fg=self._theme.dim,
+        """一组设置下的口头说明（它下面没有别的控件，所以折得比红字宽）。"""
+        self._hint_label(section, text).grid(
+            row=row, column=0, columnspan=3, sticky="w", pady=(4, 0)
+        )
+
+    def _hint_label(self, parent, text):
+        """一条说明文字的样式（组下说明与预览底下那行同形，两处共用一份）。"""
+        return tk.Label(
+            parent, text=text, bg=self._theme.bg, fg=self._theme.dim,
             font=self._theme.font(-1), anchor="w", justify="left",
             wraplength=self._theme.scaled(HINT_WRAP_AT_BASE),
-        ).grid(row=row, column=0, columnspan=3, sticky="w", pady=(4, 0))
+        )
 
     def _preview_row(self, parent):
         """1:1 预览：与真实弹窗同一个绘制函数，另配样例切换与[试弹一次]。
@@ -416,11 +422,7 @@ class SettingsWindow:
             )
         self._preview = tk.Frame(parent, bg=self._theme.bg)
         self._preview.pack(anchor="w", pady=(4, 0))
-        self._preview_hint = tk.Label(
-            parent, text=PREVIEW_HINT, bg=self._theme.bg, fg=self._theme.dim,
-            font=self._theme.font(-1), anchor="w", justify="left",
-            wraplength=self._theme.scaled(HINT_WRAP_AT_BASE),  # 说明那一档宽度（见 _hint）
-        )
+        self._preview_hint = self._hint_label(parent, PREVIEW_HINT)
         self._preview_hint.pack(anchor="w", pady=(6, 0))
         self._theme.button(parent, "试弹一次", self.test_popup).pack(
             anchor="w", pady=(6, 0)
