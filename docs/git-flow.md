@@ -7,6 +7,7 @@
 - 正式发布分支叫 **`master`**（本仓库没有 `main`）。下文出现的「main / master」一律读作 `master`。
 - 集成分支叫 **`develop`**。
 - 分支前缀与 tag 前缀已写入 git-flow 配置：`feature/`、`release/`、`hotfix/`，发布 tag 形如 `v0.1.0`。
+- 版本号在 `aurumwatch/__init__.py` 的 `__version__`，**全项目唯一一处**；在 `release/*` 分支上确认并提升。窗口标题栏、启动日志与 exe 的属性页都读它。
 - **本仓库没有配置任何远程**。「push 到远程」「远程同步状态」相关的规则当前无对象可施；一旦加上远程，它们立即生效。
 
 ## 分支职责

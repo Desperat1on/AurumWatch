@@ -18,6 +18,7 @@ import threading
 from datetime import date, datetime
 from pathlib import Path
 
+from aurumwatch import __version__
 from aurumwatch.config import base_dir
 from aurumwatch.failures import duration_text
 
@@ -30,7 +31,7 @@ STAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
 KEEP_DAYS = 30  # 日志留几天（见 ADR-0003）：更旧的按天文件在启动时清掉
 RECENT_LIMIT = 50  # 事件记录摆几条（见 ticket 05）：更早的只在日志里
 
-STARTUP_TEXT = "AurumWatch 启动"
+STARTUP_TEXT = f"AurumWatch {__version__} 启动"  # 日志里留下「哪一版跑过」，事后翻得到
 SHUTDOWN_TEXT = "AurumWatch 退出"
 SETTINGS_SAVED_TEXT = "设置已保存"
 

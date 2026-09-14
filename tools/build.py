@@ -23,14 +23,62 @@ sys.path.insert(
     0, str(ROOT)
 )  # 直接跑这个脚本时（`python tools/build.py`）也认得出下面那个包
 
-from aurumwatch.icon import write_ico  # noqa: E402  （要在上面那行之后）
+from aurumwatch import __version__  # noqa: E402  （要在上面那行之后）
+from aurumwatch.icon import write_ico  # noqa: E402
 
 ENTRY = ROOT / "aurumwatch" / "__main__.py"  # 与 `python -m aurumwatch` 同一个入口
 NAME = "AurumWatch"
 DIST = ROOT / "dist"
 WORK = ROOT / "build"
 ICON = WORK / "aurumwatch.ico"
+VERSION_FILE = WORK / "version_resource.txt"
 INSTALL_HINT = "pip install --no-user pyinstaller"
+
+# 版本资源里那几行文字用哪种语言：0804 简体中文 + 1200（Unicode），与界面语言一致。
+# 表格的键是这两个数按 StringTable 的写法拼出来的，写死在这里而不是现拼
+VERSION_LANG = 2052
+VERSION_CODEPAGE = 1200
+VERSION_TABLE = "080404b0"
+
+
+def version_resource(version):
+    """PyInstaller 的版本资源文件内容（纯函数）：Explorer 属性页里那几行。
+
+    版本号由调用方从 `aurumwatch.__version__` 传进来，所以属性页上的版本与窗口标题栏、
+    启动日志永远是同一个数，不靠人去几处同步。内容得像一段 Python——PyInstaller 会把它
+    `eval` 成自己的结构；开头那行 `# UTF-8` 也不是装饰，它决定这个文件按 UTF-8 解码，
+    少了它中文 FileDescription 会变乱码。
+    """
+    numbers = tuple(int(part) for part in version.split("."))
+    quad = (numbers + (0, 0, 0, 0))[:4]
+    fields = (
+        ("FileDescription", f"{NAME}——金价监视与阈值弹窗提醒"),
+        ("FileVersion", version),
+        ("InternalName", NAME),
+        ("LegalCopyright", "Copyright (c) 2026 Desperat1on"),
+        ("OriginalFilename", f"{NAME}.exe"),
+        ("ProductName", NAME),
+        ("ProductVersion", version),
+    )
+    table = ",\n".join(
+        f"        StringStruct('{key}', '{value}')" for key, value in fields
+    )
+    return (
+        "# UTF-8\n"
+        "VSVersionInfo(\n"
+        f"  ffi=FixedFileInfo(filevers={quad}, prodvers={quad},\n"
+        "                   mask=0x3f, flags=0x0, OS=0x40004, fileType=0x1, subtype=0x0,\n"
+        "                   date=(0, 0)),\n"
+        "  kids=[\n"
+        "    StringFileInfo([\n"
+        f"      StringTable('{VERSION_TABLE}', [\n"
+        f"{table},\n"
+        "      ])]),\n"
+        "    VarFileInfo([VarStruct('Translation', "
+        f"[{VERSION_LANG}, {VERSION_CODEPAGE}])])\n"
+        "  ]\n"
+        ")\n"
+    )
 
 
 def main():
@@ -40,6 +88,7 @@ def main():
     target = DIST / f"{NAME}.exe"
     target.unlink(missing_ok=True)  # 先清旧的：构建没走完时不会留一个像是成功的产物
     write_ico(ICON)
+    VERSION_FILE.write_text(version_resource(__version__), encoding="utf-8")
     _run_pyinstaller()
     _check(target)
     print(f"\n产物：{target}（{target.stat().st_size / 1024 / 1024:.1f} MB）")
@@ -90,6 +139,8 @@ def _run_pyinstaller():
         NAME,
         "--icon",
         str(ICON),
+        "--version-file",
+        str(VERSION_FILE),
         "--paths",
         str(ROOT),
         "--distpath",

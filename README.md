@@ -94,6 +94,8 @@ python -m ruff format .                 # 排版
 
 分支模型见 [`docs/git-flow.md`](docs/git-flow.md)：`master` 是发布线，`develop` 是集成线，功能走 `feature/*`，发布走 `release/*`，线上修复走 `hotfix/*`。
 
+版本号在 `aurumwatch/__init__.py` 的 `__version__`，全项目唯一一处，在 `release/*` 分支上提升。窗口标题栏、启动那行日志与 exe 的属性页都读它——三处不会各说各话。
+
 ## 数据来源
 
 行情取自新浪财经的公开行情接口（`hq.sinajs.cn`）。程序不做任何上报、不连第三方服务，除该接口外不发起任何网络请求。

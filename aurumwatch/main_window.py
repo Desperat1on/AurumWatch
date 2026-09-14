@@ -12,11 +12,14 @@ import ctypes
 import tkinter as tk
 import traceback
 
-from aurumwatch import icon
+from aurumwatch import __version__, icon
 from aurumwatch.config import parse_geometry
 from aurumwatch.viewmodel import TONE_PRICE
 
 WINDOW_TITLE = "AurumWatch"  # 不单用「金价」：两个市场各有各的金价（见 CONTEXT.md）
+# 标题栏带上版本号：exe 拷来拷去之后，一眼看得出手上那份是哪一版。窗口里那个大标题
+# （`_headline`）仍只用 WINDOW_TITLE——那是品牌，不是版本标签
+TITLE_BAR = f"{WINDOW_TITLE} {__version__}"
 # 窗口与任务栏图标：Tk 拿这一张去缩放，64 在 100%–200% 缩放下都够用（任务栏最大 64）
 ICON_SIZE = 64
 WINDOW_MARGIN = 12
@@ -101,7 +104,7 @@ class MainWindow:
         self._reported_errors = set()  # 记过的那几条异常：同一条不重复记
         self._on_error = on_error
         self._root = tk.Tk()
-        self._root.title(WINDOW_TITLE)
+        self._root.title(TITLE_BAR)
         self._icon = _window_icon(self._root)  # 留着这个引用：Tk 图像没人引用就没了
         self._root.protocol("WM_DELETE_WINDOW", self._close)
         self._root.report_callback_exception = self._report_callback_error
