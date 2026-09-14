@@ -110,7 +110,10 @@ class FailureAccounting(unittest.TestCase):
         failures = {"gds_AU9999": FailureState(since=AT, warned=True)}
         for minutes in (11, 20, 60):
             failures, warnings, _ = update_failures(
-                [failed(DOMESTIC)], failures, AT + timedelta(minutes=minutes), WARN_AFTER
+                [failed(DOMESTIC)],
+                failures,
+                AT + timedelta(minutes=minutes),
+                WARN_AFTER,
             )
             self.assertEqual(warnings, (), "警告只弹一次")
 

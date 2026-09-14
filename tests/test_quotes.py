@@ -11,12 +11,12 @@ from aurumwatch.schedule import next_refresh_delay
 # 2026-09-12 本机实测的新浪响应（网络层按 GBK 解码后的文本）
 DOMESTIC_LINE = (
     'var hq_str_gds_AU9999="940.00,0,940.00,946.00,950.00,935.00,02:30:00,'
-    "939.54,938.88,8240,3.00,1.00,2026-09-12,沪金99\";"
+    '939.54,938.88,8240,3.00,1.00,2026-09-12,沪金99";'
 )
 
 INTERNATIONAL_LINE = (
     'var hq_str_hf_XAU="4348.35,4316.600,4348.35,4348.74,4402.19,4292.65,'
-    "04:54:00,4316.60,4316.95,0,0,0,2026-09-12,伦敦金（现货黄金）\";"
+    '04:54:00,4316.60,4316.95,0,0,0,2026-09-12,伦敦金（现货黄金）";'
 )
 
 
@@ -41,8 +41,7 @@ class ParseQuoteInternational(unittest.TestCase):
 
     def test_time_with_milliseconds_is_truncated_to_seconds(self):
         line = (
-            'var hq_str_hf_XAU="4348.35,0,0,0,0,0,04:54:00.123,0,0,0,0,0,'
-            '2026-09-12,x";'
+            'var hq_str_hf_XAU="4348.35,0,0,0,0,0,04:54:00.123,0,0,0,0,0,2026-09-12,x";'
         )
         quote = parse_quote(line, "hf_XAU")
         self.assertEqual(quote.time, datetime(2026, 9, 12, 4, 54, 0))

@@ -61,7 +61,9 @@ def run(journal):
     window = MainWindow(
         on_refresh=wake.set,
         on_settings=lambda: open_settings(
-            window.root, store, on_saved=lambda values: _applied(window, values, journal)
+            window.root,
+            store,
+            on_saved=lambda values: _applied(window, values, journal),
         ),
         on_logs=lambda: _open_logs(window, journal),
         on_error=journal.record,  # 窗口回调里的异常：留一条（没有控制台可打印）
@@ -89,7 +91,9 @@ def _applied(window, values, journal):
     theme = Theme.from_appearance(values["appearance"])
     set_theme(theme)
     window.apply(theme)
-    _tell(window, journal, SETTINGS_SAVED_TEXT)  # 什么时候改过设置，日后翻得到（见 User Story 44）
+    _tell(
+        window, journal, SETTINGS_SAVED_TEXT
+    )  # 什么时候改过设置，日后翻得到（见 User Story 44）
 
 
 def _open_logs(window, journal):

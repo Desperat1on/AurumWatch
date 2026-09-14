@@ -27,8 +27,17 @@ class ReadsTheShapeWeWrite(unittest.TestCase):
         self.assertEqual(parse_geometry(" 960x640+120+80 "), (960, 640, 120, 80))
 
     def test_anything_we_did_not_write_is_not_a_geometry(self):
-        for text in (None, "", 42, "abc", "960x640", "800x600", "960x640+120",
-                     "=960x640+120+80", "960x640+120+80+40"):
+        for text in (
+            None,
+            "",
+            42,
+            "abc",
+            "960x640",
+            "800x600",
+            "960x640+120",
+            "=960x640+120+80",
+            "960x640+120+80+40",
+        ):
             with self.subTest(text=text):
                 self.assertIsNone(parse_geometry(text))
 
@@ -64,7 +73,9 @@ class KeepsTheWindowWhereYouLeftIt(unittest.TestCase):
 
     def test_a_work_area_that_starts_away_from_the_origin_is_respected(self):
         """任务栏在左边时工作区不从 0 开始：拉回的是工作区的边（与弹窗一个口径）。"""
-        pulled = parse_geometry(visible_geometry("960x640-5000+80", (100, 40, 1820, 1000)))
+        pulled = parse_geometry(
+            visible_geometry("960x640-5000+80", (100, 40, 1820, 1000))
+        )
         self.assertEqual(pulled[2], 100 - 960 + GEOMETRY_KEEP)
 
     def test_nothing_saved_means_open_at_the_default_spot(self):
@@ -75,7 +86,9 @@ class KeepsTheWindowWhereYouLeftIt(unittest.TestCase):
 
     def test_without_a_work_area_the_saved_geometry_is_used_as_is(self):
         self.assertEqual(
-            visible_geometry("960x640+120+80", None), "960x640+120+80", "问不到屏幕就别猜"
+            visible_geometry("960x640+120+80", None),
+            "960x640+120+80",
+            "问不到屏幕就别猜",
         )
 
 

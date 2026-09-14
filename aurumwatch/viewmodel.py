@@ -83,7 +83,9 @@ def threshold_line(direction, threshold, unit, price, fired, rearm_ratio):
 
 def failure_lines(error, failure, at, warn_after):
     """取数失败市场的行：故障原因与连续失败时长。"""
-    note = "已弹出警告" if failure.warned else f"满 {duration_text(warn_after)}将弹出警告"
+    note = (
+        "已弹出警告" if failure.warned else f"满 {duration_text(warn_after)}将弹出警告"
+    )
     return (
         Line(f"!! 数据源故障：{error}", TONE_WARN),
         Line(f"已连续失败 {duration_text(at - failure.since)}（{note}）", TONE_WARN),

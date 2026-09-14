@@ -48,8 +48,12 @@ class TheSixSettingsTakeEffect(unittest.TestCase):
 
     def test_the_colors_and_the_font_are_kept_as_given(self):
         theme = theme_of(
-            bg="#ffffff", fg="#101010", rise="#c00000", fall="#008000",
-            font="SimSun", base_size=14,
+            bg="#ffffff",
+            fg="#101010",
+            rise="#c00000",
+            fall="#008000",
+            font="SimSun",
+            base_size=14,
         )
         self.assertEqual(theme.bg, "#ffffff")
         self.assertEqual(theme.fg, "#101010")
@@ -94,7 +98,8 @@ class TheRestIsDerived(unittest.TestCase):
         self.assertNotEqual(theme.field_bg, "#ffffff", "白底上的输入框不能也全白")
         self.assertLess(luminance(theme.field_bg), luminance("#ffffff"))
         self.assertGreater(
-            luminance(theme.field_bg), luminance(theme.button_active_bg),
+            luminance(theme.field_bg),
+            luminance(theme.button_active_bg),
             "按下去的按钮比常态更沉一点",
         )
 
@@ -114,7 +119,8 @@ class TheRestIsDerived(unittest.TestCase):
             contrast(dark.warn, dark.bg), 3, "深色底上的警告色本来就够显眼"
         )
         self.assertGreaterEqual(
-            contrast(light.warn, light.bg), 3,
+            contrast(light.warn, light.bg),
+            3,
             "浅色底上要压暗，否则琥珀色糊在白底里看不见",
         )
 

@@ -80,7 +80,9 @@ def png_bytes(size):
 def _chunk(tag, data):
     """PNG 的一个数据块：长度 + 标签 + 数据 + CRC。"""
     return (
-        struct.pack(">I", len(data)) + tag + data
+        struct.pack(">I", len(data))
+        + tag
+        + data
         + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
     )
 
@@ -115,11 +117,13 @@ def _render(size):
             # 折线：到底边那段距离里取最近的一条
             distance = min(
                 _segment_distance(px, py, start, end)
-                for start, end in zip(points, points[1:])
+                for start, end in zip(points, points[1:], strict=False)
             )
             color = _mix(color, LINE, _cover(distance - stroke / 2))
             # 末端那个点（涨破色）：先折线后它，末梢才不被折线盖回去
-            color = _mix(color, TIP, _cover(math.hypot(px - last[0], py - last[1]) - tip))
+            color = _mix(
+                color, TIP, _cover(math.hypot(px - last[0], py - last[1]) - tip)
+            )
             pixels.append((*color, round(cover * 255)))
     return pixels
 
@@ -139,7 +143,7 @@ def _mix(base, top, amount):
     if amount <= 0.0:
         return base
     return tuple(
-        round(low + (high - low) * amount) for low, high in zip(base, top)
+        round(low + (high - low) * amount) for low, high in zip(base, top, strict=True)
     )
 
 
@@ -150,7 +154,11 @@ def _segment_distance(px, py, start, end):
     dx, dy = bx - ax, by - ay
     length_squared = dx * dx + dy * dy
     # 投影落在段内则取垂距，落在两头则取到端点的距离（这样拐角是圆的）
-    t = 0.0 if length_squared == 0 else ((px - ax) * dx + (py - ay) * dy) / length_squared
+    t = (
+        0.0
+        if length_squared == 0
+        else ((px - ax) * dx + (py - ay) * dy) / length_squared
+    )
     t = min(1.0, max(0.0, t))
     return math.hypot(px - (ax + t * dx), py - (ay + t * dy))
 

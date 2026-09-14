@@ -19,8 +19,8 @@ from aurumwatch.config import (
     CUSTOM_SOUND,
     MARKET_CATALOG,
     MAX_BASE_SIZE,
-    MAX_THRESHOLD,
     MAX_POPUP_SECONDS,
+    MAX_THRESHOLD,
     MIN_BASE_SIZE,
     MIN_POPUP_SECONDS,
     POPUP_CORNERS,
@@ -39,8 +39,12 @@ from aurumwatch.theme import Theme, contrast_text, ttk_style
 WINDOW_TITLE = "设置"
 ENTRY_WIDTH = 14
 FILE_ENTRY_WIDTH = 26  # 音效文件的路径不短，输入框给宽一点
-ERROR_WRAP_AT_BASE = 240  # 红字的折行宽度（像素，按基准字号 10 标定）：它挤在输入框右边那一列
-HINT_WRAP_AT_BASE = 320  # 组下说明的折行宽度：说明独占一行，宽些才不至于折成四行、行尾只挂一个字
+ERROR_WRAP_AT_BASE = (
+    240  # 红字的折行宽度（像素，按基准字号 10 标定）：它挤在输入框右边那一列
+)
+HINT_WRAP_AT_BASE = (
+    320  # 组下说明的折行宽度：说明独占一行，宽些才不至于折成四行、行尾只挂一个字
+)
 PREVIEW_HINT = "以上与真实弹窗是同一套绘制：改任一项，这里立刻变"
 AUTOSTART_HINT = "开机后自动启动本程序（写在当前用户的启动项里）"
 AUTOSTART_BLOCKED_HINT = "从源码运行时不可用（不把 Python 路径写进启动项）；打包后可用"
@@ -85,14 +89,18 @@ class SettingsWindow:
         self._flags = {}  # 字段标识 → 勾选框
         self._errors = {}  # 字段标识 → 红字标签
         self._filling = False  # 是否正在成批填控件（填的过程里不重画预览）
-        self._sound_entry = None  # 音效文件那个输入框：不进 _text，见 _build_sound 的说明
+        self._sound_entry = (
+            None  # 音效文件那个输入框：不进 _text，见 _build_sound 的说明
+        )
         self._colors = {}  # 颜色键（bg/fg/rise/fall）→ 色块按钮上的色号
         self._swatches = {}  # 颜色键 → 色块按钮
         self._traces = []  # [(变量, trace 编号)]：关窗时摘掉，别把窗口扣住
         # [开机自启] 的真身在注册表里，不在 config.json（见 autostart 模块）：开窗时
         # 读一次当「本次改动的起点」，[恢复默认] 回的就是它
         self._autostart_supported = autostart.exe_path() is not None
-        self._autostart_open = autostart.enabled() if self._autostart_supported else False
+        self._autostart_open = (
+            autostart.enabled() if self._autostart_supported else False
+        )
 
         self._window = tk.Toplevel(parent)
         self._window.title(WINDOW_TITLE)
@@ -133,7 +141,9 @@ class SettingsWindow:
         for market in MARKET_CATALOG:
             for direction in DIRECTIONS:
                 self._field_row(
-                    section, row, f"{market['name']}　{direction.name}",
+                    section,
+                    row,
+                    f"{market['name']}　{direction.name}",
                     field_id("thresholds", market["code"], direction.config_key),
                 )
                 row += 1
@@ -146,9 +156,9 @@ class SettingsWindow:
         self._label(section, 1, "音效")
         holder = self._holder(section, 1)
         for name, text in SOUND_CHOICES:
-            self._radio(holder, text, name, self._sound_choice, self._sync_sound_row).pack(
-                side="left", padx=(0, 10)
-            )
+            self._radio(
+                holder, text, name, self._sound_choice, self._sync_sound_row
+            ).pack(side="left", padx=(0, 10))
         self._error_label(section, 1, SOUND_CHOICE)
 
         self._label(section, 2, "文件")
@@ -184,12 +194,21 @@ class SettingsWindow:
         self._font_row(controls, row)
         row += 1
         self._spin_row(
-            controls, row, "基准字号（磅）", BASE_SIZE_FIELD, MIN_BASE_SIZE, MAX_BASE_SIZE
+            controls,
+            row,
+            "基准字号（磅）",
+            BASE_SIZE_FIELD,
+            MIN_BASE_SIZE,
+            MAX_BASE_SIZE,
         )
         row += 1
         self._spin_row(
-            controls, row, "弹窗停留（秒）", POPUP_SECONDS_FIELD,
-            MIN_POPUP_SECONDS, MAX_POPUP_SECONDS,
+            controls,
+            row,
+            "弹窗停留（秒）",
+            POPUP_SECONDS_FIELD,
+            MIN_POPUP_SECONDS,
+            MAX_POPUP_SECONDS,
         )
         row += 1
         self._corner_row(controls, row)
@@ -213,11 +232,15 @@ class SettingsWindow:
         self._flag_row(section, row, "启动时若已越线立即提醒", STARTUP_FLAG)
         self._autostart = tk.BooleanVar(value=self._autostart_open)
         self._check_row(
-            section, row + 1, "开机自启", self._autostart,
+            section,
+            row + 1,
+            "开机自启",
+            self._autostart,
             enabled=self._autostart_supported,
         )
         self._hint(
-            section, row + 2,
+            section,
+            row + 2,
             AUTOSTART_HINT if self._autostart_supported else AUTOSTART_BLOCKED_HINT,
         )
 
@@ -226,8 +249,13 @@ class SettingsWindow:
         bottom = tk.Frame(parent, bg=self._theme.bg)
         bottom.pack(fill="x", pady=(12, 0))
         self._notice = tk.Label(
-            bottom, text="", bg=self._theme.bg, fg=self._theme.rise,
-            font=self._theme.font(-1), anchor="w", justify="left",
+            bottom,
+            text="",
+            bg=self._theme.bg,
+            fg=self._theme.rise,
+            font=self._theme.font(-1),
+            anchor="w",
+            justify="left",
             wraplength=self._theme.scaled(ERROR_WRAP_AT_BASE),
         )
         self._notice.pack(side="left")
@@ -241,9 +269,16 @@ class SettingsWindow:
     def _section(self, parent, title):
         """一组设置：标题框 + 两列网格（名称｜输入框｜红字），输入框那列可拉伸。"""
         section = tk.LabelFrame(
-            parent, text=title, bg=self._theme.bg, fg=self._theme.dim,
-            font=self._theme.font(bold=True), bd=1, relief="solid",
-            labelanchor="nw", padx=12, pady=8,
+            parent,
+            text=title,
+            bg=self._theme.bg,
+            fg=self._theme.dim,
+            font=self._theme.font(bold=True),
+            bd=1,
+            relief="solid",
+            labelanchor="nw",
+            padx=12,
+            pady=8,
         )
         section.pack(fill="x", pady=(0, 10))
         section.columnconfigure(1, weight=1)
@@ -251,8 +286,12 @@ class SettingsWindow:
 
     def _label(self, section, row, text):
         tk.Label(
-            section, text=text, bg=self._theme.bg, fg=self._theme.fg,
-            font=self._theme.font(), anchor="w",
+            section,
+            text=text,
+            bg=self._theme.bg,
+            fg=self._theme.fg,
+            font=self._theme.font(),
+            anchor="w",
         ).grid(row=row, column=0, sticky="w", pady=2)
 
     def _holder(self, section, row):
@@ -264,7 +303,10 @@ class SettingsWindow:
 
     def _entry(self, parent, variable=None, width=ENTRY_WIDTH):
         entry = tk.Entry(
-            parent, width=width, font=self._theme.font(), relief="flat",
+            parent,
+            width=width,
+            font=self._theme.font(),
+            relief="flat",
             **({"textvariable": variable} if variable is not None else {}),
         )
         return self._theme.style_entry(entry)
@@ -282,9 +324,16 @@ class SettingsWindow:
         self._label(section, row, label)
         variable = tk.StringVar()
         box = tk.Spinbox(
-            section, from_=low, to=high, textvariable=variable, width=6, relief="flat",
-            font=self._theme.font(), justify="right",
-            bg=self._theme.field_bg, fg=self._theme.fg,
+            section,
+            from_=low,
+            to=high,
+            textvariable=variable,
+            width=6,
+            relief="flat",
+            font=self._theme.font(),
+            justify="right",
+            bg=self._theme.field_bg,
+            fg=self._theme.fg,
             buttonbackground=self._theme.button_active_bg,
             insertbackground=self._theme.fg,
         )
@@ -297,10 +346,14 @@ class SettingsWindow:
         """一个颜色项：名称、色块（点开系统取色器）、红字。"""
         self._label(section, row, label)
         swatch = tk.Button(
-            section, width=10, relief="flat", cursor="hand2",
+            section,
+            width=10,
+            relief="flat",
+            cursor="hand2",
             font=self._theme.font(),
             # 一圈细边：底色与窗口撞色时（黑底配黑窗），色块才不至于看不见边界
-            highlightthickness=1, highlightbackground=self._theme.dim,
+            highlightthickness=1,
+            highlightbackground=self._theme.dim,
             highlightcolor=self._theme.dim,
             command=lambda: self._pick_color(key),
         )
@@ -319,8 +372,13 @@ class SettingsWindow:
         if current not in families:  # 手改过的配置：名字留着，别在框里凭空消失
             families.insert(0, current)
         box = ttk.Combobox(
-            section, textvariable=self._font, values=families, state="readonly",
-            width=24, font=self._theme.font(), style="Aurum.TCombobox",
+            section,
+            textvariable=self._font,
+            values=families,
+            state="readonly",
+            width=24,
+            font=self._theme.font(),
+            style="Aurum.TCombobox",
         )
         box.grid(row=row, column=1, sticky="w", padx=(8, 10), pady=2)
         self._error_label(section, row, FONT_FIELD)
@@ -336,7 +394,11 @@ class SettingsWindow:
     def _radio(self, parent, text, value, variable, command=None):
         """一个单选按钮：底色随窗口，别用系统那套灰底。"""
         return tk.Radiobutton(
-            parent, text=text, value=value, variable=variable, command=command,
+            parent,
+            text=text,
+            value=value,
+            variable=variable,
+            command=command,
             **self._toggle_look(),
         )
 
@@ -358,7 +420,9 @@ class SettingsWindow:
         这一项在本次运行里就不适用，原因由那组底下的说明交代。
         """
         box = tk.Checkbutton(
-            section, text=label, variable=variable,
+            section,
+            text=label,
+            variable=variable,
             disabledforeground=self._theme.faint,
             state="normal" if enabled else "disabled",
             **self._toggle_look(),
@@ -368,17 +432,26 @@ class SettingsWindow:
     def _toggle_look(self):
         """勾选框与单选按钮共用的那几项样式（两者同名同义，只差控件类）。"""
         return {
-            "bg": self._theme.bg, "fg": self._theme.fg,
-            "activebackground": self._theme.bg, "activeforeground": self._theme.fg,
-            "selectcolor": self._theme.field_bg, "highlightthickness": 0,
-            "font": self._theme.font(), "anchor": "w",
+            "bg": self._theme.bg,
+            "fg": self._theme.fg,
+            "activebackground": self._theme.bg,
+            "activeforeground": self._theme.fg,
+            "selectcolor": self._theme.field_bg,
+            "highlightthickness": 0,
+            "font": self._theme.font(),
+            "anchor": "w",
         }
 
     def _error_label(self, section, row, field):
         """一个字段的红字位：照着字段标识挂起来，`_show_errors` 知道该把话说在哪。"""
         label = tk.Label(
-            section, text="", bg=self._theme.bg, fg=self._theme.rise,
-            font=self._theme.font(-1), anchor="w", justify="left",
+            section,
+            text="",
+            bg=self._theme.bg,
+            fg=self._theme.rise,
+            font=self._theme.font(-1),
+            anchor="w",
+            justify="left",
             wraplength=self._theme.scaled(ERROR_WRAP_AT_BASE),
         )
         label.grid(row=row, column=2, sticky="w")
@@ -394,8 +467,13 @@ class SettingsWindow:
     def _hint_label(self, parent, text):
         """一条说明文字的样式（组下说明与预览底下那行同形，两处共用一份）。"""
         return tk.Label(
-            parent, text=text, bg=self._theme.bg, fg=self._theme.dim,
-            font=self._theme.font(-1), anchor="w", justify="left",
+            parent,
+            text=text,
+            bg=self._theme.bg,
+            fg=self._theme.dim,
+            font=self._theme.font(-1),
+            anchor="w",
+            justify="left",
             wraplength=self._theme.scaled(HINT_WRAP_AT_BASE),
         )
 
@@ -408,12 +486,20 @@ class SettingsWindow:
         head = tk.Frame(parent, bg=self._theme.bg)
         head.pack(anchor="w")
         tk.Label(
-            head, text="预览（1:1）", bg=self._theme.bg, fg=self._theme.dim,
-            font=self._theme.font(bold=True), anchor="w",
+            head,
+            text="预览（1:1）",
+            bg=self._theme.bg,
+            fg=self._theme.dim,
+            font=self._theme.font(bold=True),
+            anchor="w",
         ).pack(side="left")
         tk.Label(
-            head, text="样例", bg=self._theme.bg, fg=self._theme.fg,
-            font=self._theme.font(), anchor="w",
+            head,
+            text="样例",
+            bg=self._theme.bg,
+            fg=self._theme.fg,
+            font=self._theme.font(),
+            anchor="w",
         ).pack(side="left", padx=(12, 4))
         self._sample = tk.StringVar(value=next(iter(popup.SAMPLES)))
         for name in popup.SAMPLES:
@@ -465,7 +551,9 @@ class SettingsWindow:
 
     def _fill(self, values):
         """按一份配置填一遍控件（打开时、[恢复默认]时各来一次）。"""
-        self._filling = True  # 填的过程里别一次次重画预览，填完再画（见 _appearance_changed）
+        self._filling = (
+            True  # 填的过程里别一次次重画预览，填完再画（见 _appearance_changed）
+        )
         try:
             for field, entry in self._text.items():
                 entry.delete(0, "end")
@@ -480,7 +568,9 @@ class SettingsWindow:
             self._font.set(values["appearance"]["font"])
             self._corner.set(values["appearance"]["popup_corner"])
             self._sound_choice.set(values["sound"]["choice"])
-            self._sound_file.set(values["sound"]["file"])  # 上面那圈到不了它（见 _sound_entry）
+            self._sound_file.set(
+                values["sound"]["file"]
+            )  # 上面那圈到不了它（见 _sound_entry）
         finally:
             # 半路抛错也要把门闩放下：留着它，预览从此不再刷新，还没人知道
             self._filling = False
@@ -538,7 +628,11 @@ class SettingsWindow:
 
     def _draft_theme(self, appearance=None):
         """外观草稿 → 一份可用主题：还没填对的项按默认值算，预览不因此消失。"""
-        draft = {"appearance": appearance if appearance is not None else self._appearance_draft()}
+        draft = {
+            "appearance": appearance
+            if appearance is not None
+            else self._appearance_draft()
+        }
         return Theme.from_appearance(normalize(draft)[0]["appearance"])
 
     def _appearance_errors(self, appearance):
@@ -590,7 +684,9 @@ class SettingsWindow:
         for child in self._preview.winfo_children():
             child.destroy()
         self._preview_hint.configure(
-            text="；".join(errors.values()) + "（预览暂按默认值画）" if errors else PREVIEW_HINT
+            text="；".join(errors.values()) + "（预览暂按默认值画）"
+            if errors
+            else PREVIEW_HINT
         )
         theme = self._draft_theme(appearance)
         popup.build_card(self._preview, self._sample_event(), theme).pack()
@@ -611,7 +707,11 @@ class SettingsWindow:
         color = code if is_color(code) else self._theme.bg
         text = contrast_text(color)
         self._swatches[key].configure(
-            text=code, bg=color, fg=text, activebackground=color, activeforeground=text,
+            text=code,
+            bg=color,
+            fg=text,
+            activebackground=color,
+            activeforeground=text,
         )
         self._appearance_changed()
 
@@ -633,7 +733,8 @@ class SettingsWindow:
     def pick_sound_file(self):
         """[选择…]：挑一个 WAV 文件（winsound 只放 WAV，所以只列 WAV）。"""
         chosen = filedialog.askopenfilename(
-            parent=self._window, title="选择提示音文件",
+            parent=self._window,
+            title="选择提示音文件",
             filetypes=(("WAV 音频", "*.wav"), ("所有文件", "*.*")),
         )
         if not chosen:
@@ -675,7 +776,11 @@ class SettingsWindow:
         try:
             self._store.save(values)
         except (ConfigError, OSError) as exc:
-            note = "（开机自启已改）" if self._autostart.get() != self._autostart_open else ""
+            note = (
+                "（开机自启已改）"
+                if self._autostart.get() != self._autostart_open
+                else ""
+            )
             self._notice.configure(text=f"保存失败：{exc}{note}")
             return
         self.close()

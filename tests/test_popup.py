@@ -19,12 +19,20 @@ class PopupSitsInTheChosenCorner(unittest.TestCase):
     """选哪个角就贴哪个角，留白一致（见 ticket 04：弹窗位置在主屏四角间选择）。"""
 
     def test_bottom_right_is_where_it_used_to_be(self):
-        self.assertEqual(corner_origin("bottom-right", WORK_AREA, SIZE, 0), (RIGHT, BOTTOM))
+        self.assertEqual(
+            corner_origin("bottom-right", WORK_AREA, SIZE, 0), (RIGHT, BOTTOM)
+        )
 
     def test_the_other_three_corners_move_the_matching_edges(self):
-        self.assertEqual(corner_origin("bottom-left", WORK_AREA, SIZE, 0), (POPUP_MARGIN, BOTTOM))
-        self.assertEqual(corner_origin("top-right", WORK_AREA, SIZE, 0), (RIGHT, POPUP_MARGIN))
-        self.assertEqual(corner_origin("top-left", WORK_AREA, SIZE, 0), (POPUP_MARGIN, POPUP_MARGIN))
+        self.assertEqual(
+            corner_origin("bottom-left", WORK_AREA, SIZE, 0), (POPUP_MARGIN, BOTTOM)
+        )
+        self.assertEqual(
+            corner_origin("top-right", WORK_AREA, SIZE, 0), (RIGHT, POPUP_MARGIN)
+        )
+        self.assertEqual(
+            corner_origin("top-left", WORK_AREA, SIZE, 0), (POPUP_MARGIN, POPUP_MARGIN)
+        )
 
     def test_the_work_area_may_start_away_from_the_origin(self):
         """任务栏在左边时工作区不从 0 开始：贴的是工作区的边，不是整屏的边。"""

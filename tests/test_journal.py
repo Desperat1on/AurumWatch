@@ -121,9 +121,7 @@ class EventTexts(unittest.TestCase):
         self.assertEqual(round_texts([], [], []), (), "逐轮行情不进任何一处")
 
     def test_a_round_with_only_failures_still_says_what_happened(self):
-        self.assertEqual(
-            round_texts([appeared()], [], []), (failure_text(appeared()),)
-        )
+        self.assertEqual(round_texts([appeared()], [], []), (failure_text(appeared()),))
 
 
 class LogFileNames(unittest.TestCase):
@@ -136,14 +134,24 @@ class LogFileNames(unittest.TestCase):
         self.assertEqual(file_date("aurumwatch-2026-09-14.log"), TODAY)
 
     def test_other_files_are_not_ours(self):
-        for name in ("config.json", "aurumwatch.log", "备注.txt", "aurumwatch-坏.log",
-                     "aurumwatch-2026-13-45.log", "aurumwatch-2026-1-1.log",
-                     "aurumwatch-2026-09-14.log.bak"):
+        for name in (
+            "config.json",
+            "aurumwatch.log",
+            "备注.txt",
+            "aurumwatch-坏.log",
+            "aurumwatch-2026-13-45.log",
+            "aurumwatch-2026-1-1.log",
+            "aurumwatch-2026-09-14.log.bak",
+        ):
             self.assertIsNone(file_date(name), name)
 
     def test_only_our_logs_older_than_the_kept_days_are_stale(self):
-        names = ["aurumwatch-2026-08-14.log", "aurumwatch-2026-08-15.log",
-                 "aurumwatch-2026-09-14.log", "备注.txt"]
+        names = [
+            "aurumwatch-2026-08-14.log",
+            "aurumwatch-2026-08-15.log",
+            "aurumwatch-2026-09-14.log",
+            "备注.txt",
+        ]
         self.assertEqual(
             stale_logs(names, TODAY),
             ("aurumwatch-2026-08-14.log",),
@@ -164,8 +172,9 @@ class LogDirFollowsTheDelivery(unittest.TestCase):
         self.assertEqual(log_dir(), Path(__file__).resolve().parent.parent / "logs")
 
     def test_packaged_run_puts_it_beside_the_exe(self):
-        with mock.patch.object(sys, "frozen", True, create=True), mock.patch.object(
-            sys, "executable", str(Path("D:/Apps/AurumWatch.exe"))
+        with (
+            mock.patch.object(sys, "frozen", True, create=True),
+            mock.patch.object(sys, "executable", str(Path("D:/Apps/AurumWatch.exe"))),
         ):
             self.assertEqual(log_dir(), Path("D:/Apps/logs"))
 
@@ -231,9 +240,7 @@ class JournalWritesBothPlaces(unittest.TestCase):
         self.journal.record(alert_text(alert()), datetime.now())
         self.journal.start()
         self.assertEqual(self.journal.recent(), (), "重启即清空（近况不留档）")
-        self.assertEqual(
-            len(self.logged(today).splitlines()), 1, "已经写下的日志不动"
-        )
+        self.assertEqual(len(self.logged(today).splitlines()), 1, "已经写下的日志不动")
 
     def test_nothing_is_written_before_the_first_event(self):
         self.assertEqual(
@@ -248,7 +255,9 @@ class JournalWritesBothPlaces(unittest.TestCase):
         self.journal.record(alert_text(alert()), AT)
         self.journal.record(alert_text(alert()), AT + timedelta(days=1))
         self.assertEqual(len(self.logged(TODAY).splitlines()), 1)
-        self.assertEqual(len(self.logged(date(2026, 9, 15)).splitlines()), 1, "跨天另起一份")
+        self.assertEqual(
+            len(self.logged(date(2026, 9, 15)).splitlines()), 1, "跨天另起一份"
+        )
 
 
 class JournalCleansUp(unittest.TestCase):
@@ -285,7 +294,9 @@ class JournalCleansUp(unittest.TestCase):
         stubborn.mkdir()  # 同名目录：unlink 清不掉
         first = self.put(file_name(self.today() - timedelta(days=KEEP_DAYS + 6)))
         last = self.put(file_name(self.today() - timedelta(days=KEEP_DAYS + 1)))
-        with mock.patch.object(Path, "iterdir", return_value=iter([first, stubborn, last])):
+        with mock.patch.object(
+            Path, "iterdir", return_value=iter([first, stubborn, last])
+        ):
             Journal(self.directory).start()  # 顺序固定：清不动的那个夹在中间
         self.assertTrue(stubborn.is_dir(), "清不动的那份留着，不挡启动")
         self.assertFalse(first.exists(), "排在它前面的照清")
@@ -341,9 +352,9 @@ class JournalNeverBreaksTheWatch(unittest.TestCase):
         self.blocker.unlink()  # 挡路的文件删掉，日志目录建得出来了
         self.journal.record(alert_text(alert()), AT + timedelta(minutes=1))
         self.assertEqual(
-            (self.journal.directory / file_name(TODAY)).read_text(
-                encoding="utf-8"
-            ).splitlines(),
+            (self.journal.directory / file_name(TODAY))
+            .read_text(encoding="utf-8")
+            .splitlines(),
             [f"2026-09-14 12:01:00 {alert_text(alert())}"],
             "恢复之后那一条写下去了（此前那条只在窗口里）",
         )
