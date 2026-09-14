@@ -83,6 +83,7 @@ class SettingsWindow:
         self._sound_entry = None  # 音效文件那个输入框：不进 _text，见 _build_sound 的说明
         self._colors = {}  # 颜色键（bg/fg/rise/fall）→ 色块按钮上的色号
         self._swatches = {}  # 颜色键 → 色块按钮
+        self._traces = []  # [(变量, trace 编号)]：关窗时摘掉，别把窗口扣住
 
         self._window = tk.Toplevel(parent)
         self._window.title(WINDOW_TITLE)
@@ -357,11 +358,26 @@ class SettingsWindow:
         ).grid(row=row, column=0, columnspan=3, sticky="w", pady=(4, 0))
 
     def _preview_row(self, parent):
-        """1:1 预览：与真实弹窗同一个绘制函数，另配[试弹一次]。"""
+        """1:1 预览：与真实弹窗同一个绘制函数，另配样例切换与[试弹一次]。
+
+        样例有三样（涨破／跌破／故障警告）：三种卡片的取色各不相同，只有一种样例时
+        改[跌破色]在预览里看不出动静，而「改任一项即时反映」正是本票的承诺。
+        """
+        head = tk.Frame(parent, bg=self._theme.bg)
+        head.pack(anchor="w")
         tk.Label(
-            parent, text="预览（1:1）", bg=self._theme.bg, fg=self._theme.dim,
+            head, text="预览（1:1）", bg=self._theme.bg, fg=self._theme.dim,
             font=self._theme.font(bold=True), anchor="w",
-        ).pack(anchor="w")
+        ).pack(side="left")
+        tk.Label(
+            head, text="样例", bg=self._theme.bg, fg=self._theme.fg,
+            font=self._theme.font(), anchor="w",
+        ).pack(side="left", padx=(12, 4))
+        self._sample = tk.StringVar(value=next(iter(popup.SAMPLES)))
+        for name in popup.SAMPLES:
+            self._radio(head, name, name, self._sample, self._refresh_preview).pack(
+                side="left", padx=(0, 6)
+            )
         self._preview = tk.Frame(parent, bg=self._theme.bg)
         self._preview.pack(anchor="w", pady=(4, 0))
         self._preview_hint = tk.Label(
@@ -503,10 +519,25 @@ class SettingsWindow:
         挂早了就会扑空。字号/字体/颜色都是这么回事，跟用户改没改无关。
         """
         for key, variable in self._colors.items():
-            variable.trace_add("write", lambda *_args, key=key: self._paint_swatch(key))
+            self._trace(variable, lambda *_args, key=key: self._paint_swatch(key))
         for variable in self._numbers.values():
-            variable.trace_add("write", lambda *_args: self._appearance_changed())
-        self._font.trace_add("write", lambda *_args: self._appearance_changed())
+            self._trace(variable, lambda *_args: self._appearance_changed())
+        self._trace(self._font, lambda *_args: self._appearance_changed())
+        self._trace(self._sample, lambda *_args: self._refresh_preview())
+
+    def _trace(self, variable, callback):
+        """挂一条 trace 并记下它的编号：关窗时要挨个摘掉（见 _unwatch_appearance）。"""
+        self._traces.append((variable, variable.trace_add("write", callback)))
+
+    def _unwatch_appearance(self):
+        """摘掉外观控件上的 trace。
+
+        变量挂在根解释器上，活得比这扇窗久；trace 又握着这里的 lambda（进而握着整扇
+        窗），不摘的话开一次设置就留一份控件树，谁也不回收。
+        """
+        for variable, identifier in self._traces:
+            variable.trace_remove("write", identifier)
+        self._traces.clear()
 
     def _refresh_preview(self):
         """按当前（可能还没保存的）外观重画预览卡片——用的就是弹窗那套绘制函数。"""
@@ -517,9 +548,12 @@ class SettingsWindow:
         self._preview_hint.configure(
             text="；".join(errors.values()) + "（预览暂按默认值画）" if errors else PREVIEW_HINT
         )
-        popup.build_card(
-            self._preview, popup.sample_alert(), self._draft_theme(appearance)
-        ).pack()
+        theme = self._draft_theme(appearance)
+        popup.build_card(self._preview, self._sample_event(), theme).pack()
+
+    def _sample_event(self):
+        """当前选中的样例提醒（预览与[试弹一次]弹的是同一张卡）。"""
+        return popup.SAMPLES[self._sample.get()]()
 
     def _appearance_changed(self):
         """外观控件动了：[填控件]时先不画，填完一次画好——开窗与[恢复默认]各要填十来个。"""
@@ -571,7 +605,9 @@ class SettingsWindow:
 
     def test_popup(self):
         """[试弹一次]：按当前（尚未保存的）外观弹一个真实弹窗，并照当前音效出一声。"""
-        notice = popup.test_pop(self._draft_theme(), self._sound_draft())
+        notice = popup.test_pop(
+            self._draft_theme(), self._sample_event(), self._sound_draft()
+        )
         self._notice.configure(text=notice or "")
 
     def save(self):
@@ -604,6 +640,7 @@ class SettingsWindow:
         """关窗：非模态，主窗口照常监视。"""
         global _opened
         _opened = None
+        self._unwatch_appearance()
         self._window.destroy()
 
     # —— 窗口本身 ——

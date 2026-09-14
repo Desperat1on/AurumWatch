@@ -15,7 +15,7 @@ import queue
 import tkinter as tk
 import winsound
 from ctypes import wintypes
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 from aurumwatch.alerts import DOWNSIDE, UPSIDE, Alert
@@ -47,7 +47,7 @@ _ui_errors = queue.Queue()  # 弹窗与提示音的报错，每条自带说法�
 _root = None
 _theme = Theme.from_appearance(default_values()["appearance"])  # 编排层接手前的默认外观
 _open_popups = []  # 已弹出的窗口：[(窗口, 贴的角)]，同角叠放时数位置用
-_reported_sound = set()  # 已经说过「放不出来」的音效文件（按路径记），见 _report_sound
+_reported_sound = set()  # 说过的音效问题：{(文件路径, 说法)}，见 _report_sound
 
 
 def attach(root):
@@ -89,33 +89,56 @@ def play_sound(sound):
     path = str(sound.get("file") or "")
     problem = _play_wav(path)
     if problem is None:
-        _reported_sound.discard(path)  # 又能放了：日后再坏，还会再说一次
+        _forget_sound_problem(path)  # 又能放了：日后再坏，还会再说一次
         return None
     _beep()
     return f"{problem}，已改用系统提示音"
 
 
-def test_pop(theme, sound=None):
+def test_pop(theme, event, sound=None):
     """[试弹一次]：按给定的（可能尚未保存的）外观弹一个真实弹窗。
 
-    与真实触发一样顺手出声（提示音开着的话）；返回一句要转达给用户的话（音效放不
-    出来时），没有则 None。弹完不改变当前外观——[取消] 后一切照旧。
+    弹的就是预览里那张卡片（event 由调用方从 SAMPLES 里取），与真实触发一样顺手
+    出声（提示音开着的话）；返回一句要转达给用户的话（音效放不出来时），没有则
+    None。弹完不改变当前外观——[取消] 后一切照旧。
     """
     notice = play_sound(sound) if sound and sound.get("enabled") else None
-    _show_popup(sample_alert(), theme)
+    _show_popup(event, theme)
     return notice
 
 
-def sample_alert():
-    """样例提醒：国内金价涨破（预览与[试弹一次]共用，见 spec 的验收参考价位）。"""
+def sample_alert(direction=UPSIDE):
+    """样例价格提醒：国内金价贴着阈值越线（涨破、跌破各一种，见 spec 的验收参考价位）。"""
+    upside = direction == UPSIDE
     return Alert(
         market="国内金价",
-        direction=UPSIDE,
-        price=Decimal("951.24"),
-        threshold=Decimal("950.00"),
+        direction=direction,
+        price=Decimal("951.24") if upside else Decimal("899.10"),
+        threshold=Decimal("950.00") if upside else Decimal("900.00"),
         unit="元/克",
         data_time=datetime.now(),
     )
+
+
+def sample_warning():
+    """样例故障警告：国际金价连续取数失败到点。"""
+    since = datetime.now() - timedelta(minutes=11)
+    return FailureWarning(
+        market="国际金价",
+        detail="伦敦金（XAU/USD 现货黄金）",
+        since=since,
+        elapsed=timedelta(minutes=11),
+        error="ConnectionError: 连接失败",
+    )
+
+
+# 预览与[试弹一次]可选的样例：三种卡片各用一样取色（涨破色、跌破色、警告色），
+# 用户改哪一项都在预览里有东西立刻变（见 ticket 04 的「所见即所得」）
+SAMPLES = {
+    "涨破": sample_alert,
+    "跌破": lambda: sample_alert(DOWNSIDE),
+    "故障警告": sample_warning,
+}
 
 
 def build_card(parent, event, theme):
@@ -173,16 +196,23 @@ def drain_ui_errors():
 
 
 def _report_sound(sound, notice):
-    """音效放不出来：同一个文件只说一次，别每分钟提醒一次同一件事。
+    """音效放不出来：同一件事只说一次，别每分钟提醒一次同一件事。
 
-    按文件路径记账（不是按那句话），而且放成功一次就把记录撤掉（见 play_sound）——
-    文件插回来再掉线，用户还会被知会一声，不会从此闷掉。
+    按「哪个文件 + 哪种说法」记账：同一句不重复，但同一个文件换一种坏法（先找不到、
+    后来找到了却不是 WAV）仍会说明——头一回按路径记账时就是这么漏的。
     """
-    path = str(sound.get("file") or "")
-    if path in _reported_sound:
+    key = (str(sound.get("file") or ""), notice)
+    if key in _reported_sound:
         return
-    _reported_sound.add(path)
+    _reported_sound.add(key)
     _ui_errors.put(f"提示音：{notice}")
+
+
+def _forget_sound_problem(path):
+    """某个文件又能放了：把它名下的旧账划掉，日后再坏还会再说一次。"""
+    _reported_sound.difference_update(
+        {key for key in _reported_sound if key[0] == path}
+    )
 
 
 def _play_wav(path):
