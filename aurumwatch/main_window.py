@@ -183,15 +183,22 @@ class MainWindow:
         条目文字由 journal 给出——与写进日志的是同一条，这里只负责摆；最新的摆在
         最上面，是因为要看的正是「刚才那声响是什么」（见 User Story 16），不该让人
         先往下滚。没有事件时这里是空的，窗口本来也没什么可看。
+
+        重排之前先看读者停在哪儿：本来就在最上面（或空着）的，跟着新事件走；正在
+        往下翻旧账的，把视线留在原处——每来一条就把人拽回顶上，旧的那些就没法看了。
         """
         if entries == self._events:
             return
         self._events = entries
+        top = self._events_text.yview()[0]
         self._events_text.configure(state="normal")
         self._events_text.delete("1.0", "end")
         self._events_text.insert("1.0", "\n".join(reversed(entries)))
         self._events_text.configure(state="disabled")
-        self._events_text.see("1.0")
+        if top <= 0.0:
+            self._events_text.see("1.0")  # 本来就在看最新的：跟着新的走
+        else:
+            self._events_text.yview_moveto(top)  # 正在往下翻旧账：视线留在原处
 
     def run(self):
         """进入窗口事件循环；关闭窗口后返回。"""

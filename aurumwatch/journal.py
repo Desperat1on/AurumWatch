@@ -4,6 +4,8 @@
 `record` 一处写两处：当天的日志文件与主窗口的事件记录区出现的是同一条内容，只是
 近况只留最近 `RECENT_LIMIT` 条、重启即失（见 ticket 05）。记的是事件——触发、故障
 警告、故障出现与恢复、启停、设置保存、配置回退、弹窗失败——逐轮行情一个字不记。
+一条记录就是一行（时刻打头），只有出错退出的调用栈跨几行：续行缩进四格，看得出
+归属，也好过把栈丢掉（那时没有别处可看）。
 
 日志按天分文件（`logs/aurumwatch-YYYY-MM-DD.log`），启动时清掉超过 30 天的旧文件
 （见 ADR-0003）。轮询线程（触发、故障与警告）与主线程（启停、设置、弹窗失败）都会
@@ -191,11 +193,11 @@ class Journal:
             path = self.directory / file_name(at.date())
             with open(path, "a", encoding="utf-8", newline="\n") as handle:
                 handle.write(line + "\n")
-        except OSError as exc:
+        except Exception as exc:  # 日志是旁路：坏成什么样都不该把监视带下去
             if self._problem is None:
                 # 说给用户听的话摆在事件记录里（日志自己写不进去，只能摆在这儿）。
                 # 也走 line_text：记录里每一条都是「时刻 + 事由」，这一条不是例外
-                self._problem = f"日志写不进去（{exc.strerror or exc}）"
+                self._problem = f"日志写不进去（{getattr(exc, 'strerror', None) or exc}）"
                 self._remember(
                     line_text(f"{self._problem}，本次运行的事件只留在窗口里", at)
                 )

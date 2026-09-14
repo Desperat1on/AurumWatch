@@ -178,9 +178,9 @@ def main():
     except KeyboardInterrupt:
         pass  # 从终端 Ctrl+C：与关闭主窗口同义
     except Exception:
-        # 出错退出的调用栈整段写进日志（一行写不下，也不该只留一句「出错了」）：
+        # 出错退出的调用栈整段写进日志（续行缩进四格，一眼看出属于哪一条）：
         # 这种时候没有别处可看——消息框一闪而过，没有控制台可打印
         report = traceback.format_exc().strip()
-        journal.record(f"AurumWatch 出错退出：{report}")
+        journal.record("AurumWatch 出错退出：" + report.replace("\n", "\n    "))
         show_error_box(f"AurumWatch 出错退出：\n\n{report}")
         sys.exit(1)

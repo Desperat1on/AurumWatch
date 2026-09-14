@@ -225,10 +225,15 @@ class JournalWritesBothPlaces(unittest.TestCase):
         )
 
     def test_a_new_run_starts_with_an_empty_record(self):
-        self.journal.record(alert_text(alert()), AT)
+        # 记在**今天**：紧跟着的 start() 会按真实日期清旧账，写死的那天过了 30 天
+        # 就会被它当旧文件清掉，这条用例也就跟着过期了
+        today = date.today()
+        self.journal.record(alert_text(alert()), datetime.now())
         self.journal.start()
         self.assertEqual(self.journal.recent(), (), "重启即清空（近况不留档）")
-        self.assertEqual(self.logged().count("触发"), 1, "已经写下的日志不动")
+        self.assertEqual(
+            len(self.logged(today).splitlines()), 1, "已经写下的日志不动"
+        )
 
     def test_nothing_is_written_before_the_first_event(self):
         self.assertEqual(
