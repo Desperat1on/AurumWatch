@@ -100,32 +100,48 @@ class NumberField:
 
 ADVANCED_FIELDS = (
     NumberField(
-        "refresh_interval", "刷新间隔", "秒",
+        "refresh_interval",
+        "刷新间隔",
+        "秒",
         f"{MIN_REFRESH_INTERVAL} 到 {MAX_REFRESH_INTERVAL} 之间的整数秒",
-        True, lambda number: MIN_REFRESH_INTERVAL <= number <= MAX_REFRESH_INTERVAL,
+        True,
+        lambda number: MIN_REFRESH_INTERVAL <= number <= MAX_REFRESH_INTERVAL,
     ),
     NumberField(
-        "rearm_ratio", "重新武装带比例", "", "0 与 1 之间的小数（例：0.001）",
-        False, lambda number: 0 < number < 1,
+        "rearm_ratio",
+        "重新武装带比例",
+        "",
+        "0 与 1 之间的小数（例：0.001）",
+        False,
+        lambda number: 0 < number < 1,
     ),
     NumberField(
-        "failure_warn_minutes", "故障警告时长", "分钟",
+        "failure_warn_minutes",
+        "故障警告时长",
+        "分钟",
         f"1 到 {MAX_FAILURE_WARN_MINUTES} 之间的整数分钟",
-        True, lambda number: 1 <= number <= MAX_FAILURE_WARN_MINUTES,
+        True,
+        lambda number: 1 <= number <= MAX_FAILURE_WARN_MINUTES,
     ),
 )
 
 # 外观组的数值项：字号与弹窗停留（配色、字体、四角、置顶另按各自的形状读）
 APPEARANCE_NUMBERS = (
     NumberField(
-        "base_size", "基准字号", "磅",
+        "base_size",
+        "基准字号",
+        "磅",
         f"{MIN_BASE_SIZE} 到 {MAX_BASE_SIZE} 磅之间的整数",
-        True, lambda number: MIN_BASE_SIZE <= number <= MAX_BASE_SIZE,
+        True,
+        lambda number: MIN_BASE_SIZE <= number <= MAX_BASE_SIZE,
     ),
     NumberField(
-        "popup_seconds", "弹窗停留", "秒",
+        "popup_seconds",
+        "弹窗停留",
+        "秒",
         f"{MIN_POPUP_SECONDS} 到 {MAX_POPUP_SECONDS} 之间的整数秒",
-        True, lambda number: MIN_POPUP_SECONDS <= number <= MAX_POPUP_SECONDS,
+        True,
+        lambda number: MIN_POPUP_SECONDS <= number <= MAX_POPUP_SECONDS,
     ),
 )
 
@@ -458,14 +474,20 @@ def validate(values):
     appearance = _as_dict(values.get("appearance"))
     for key, label in COLOR_FIELDS:
         if not is_color(appearance.get(key)):
-            errors[field_id("appearance", key)] = f"{label}须是 #RRGGBB 形式的颜色（例：#1e1f22）"
+            errors[field_id("appearance", key)] = (
+                f"{label}须是 #RRGGBB 形式的颜色（例：#1e1f22）"
+            )
     font = appearance.get("font")
     if not (isinstance(font, str) and font.strip()):
-        errors[field_id("appearance", "font")] = "字体须填字体名称（例：Microsoft YaHei UI）"
+        errors[field_id("appearance", "font")] = (
+            "字体须填字体名称（例：Microsoft YaHei UI）"
+        )
     _number_errors(errors, "appearance", appearance, APPEARANCE_NUMBERS)
     _flag_errors(errors, "appearance", appearance, APPEARANCE_FLAGS)
     if appearance.get("popup_corner") not in CORNER_NAMES:
-        errors[field_id("appearance", "popup_corner")] = f"弹窗位置须为{CORNER_TEXT}之一"
+        errors[field_id("appearance", "popup_corner")] = (
+            f"弹窗位置须为{CORNER_TEXT}之一"
+        )
     sound = _as_dict(values.get("sound"))
     _flag_errors(errors, "sound", sound, SOUND_FLAGS)
     if sound.get("choice") not in SOUND_NAMES:
@@ -612,7 +634,9 @@ def load(path):
         values = default_values()
         try:
             save(path, values)
-        except OSError as exc:  # 只读目录（exe 落在 Program Files 等）：跑起来比生成文件要紧
+        except (
+            OSError
+        ) as exc:  # 只读目录（exe 落在 Program Files 等）：跑起来比生成文件要紧
             return values, (
                 f"未找到配置文件，也写不进去（{exc.strerror or exc}），本次按默认值运行",
             )

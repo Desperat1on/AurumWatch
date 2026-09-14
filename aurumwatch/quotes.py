@@ -14,7 +14,9 @@ import requests
 
 API_URL = "https://hq.sinajs.cn/list={code}"
 HEADERS = {"Referer": "https://finance.sina.com.cn"}
-REQUEST_TIMEOUT = 10  # 单次请求超时（秒）：不由用户权衡，留在模块里（设置只收用户可调的项）
+REQUEST_TIMEOUT = (
+    10  # 单次请求超时（秒）：不由用户权衡，留在模块里（设置只收用户可调的项）
+)
 
 _LINE_RE = re.compile(r'var hq_str_([A-Za-z0-9_]+)="([^"]*)"')
 
@@ -66,13 +68,9 @@ def parse_quote(line, code, scale=Decimal("1")):
         raise QuoteError(f"{code} 价格字段无法解析：{fields[0]!r}") from None
     time_text = fields[6].split(".")[0]  # 国际行情时间带毫秒，取到秒
     try:
-        data_time = datetime.strptime(
-            fields[12] + " " + time_text, "%Y-%m-%d %H:%M:%S"
-        )
+        data_time = datetime.strptime(fields[12] + " " + time_text, "%Y-%m-%d %H:%M:%S")
     except ValueError:
-        raise QuoteError(
-            f"{code} 行情时间无法解析：{fields[12]} {fields[6]}"
-        ) from None
+        raise QuoteError(f"{code} 行情时间无法解析：{fields[12]} {fields[6]}") from None
     return Quote(price=price, time=data_time)
 
 
@@ -98,7 +96,9 @@ def fetch_rounds(markets):
             line = next((row for row in raw.splitlines() if code in row), "")
             quote = parse_quote(line, code)
         except Exception as exc:  # 本轮失败不退出，下一轮自动重试
-            rounds.append(MarketRound(market=market, error=f"{type(exc).__name__}: {exc}"))
+            rounds.append(
+                MarketRound(market=market, error=f"{type(exc).__name__}: {exc}")
+            )
         else:
             rounds.append(MarketRound(market=market, quote=quote))
     return rounds

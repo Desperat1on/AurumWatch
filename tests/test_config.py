@@ -168,7 +168,8 @@ class NormalizeFillsDefaultsAndRejectsBadValues(unittest.TestCase):
             "连字面量都保住：950.00 就是 950.00",
         )
         self.assertEqual(
-            values["thresholds"][DOMESTIC_CODE]["down_threshold"], Decimal("900.50"),
+            values["thresholds"][DOMESTIC_CODE]["down_threshold"],
+            Decimal("900.50"),
             "数字写法（json 的 parse_float=Decimal）同样精确",
         )
         self.assertEqual(values["advanced"]["rearm_ratio"], Decimal("0.002"))
@@ -185,7 +186,8 @@ class NormalizeFillsDefaultsAndRejectsBadValues(unittest.TestCase):
             values["thresholds"][DOMESTIC_CODE]["up_threshold"], "读不出来的阈值当没填"
         )
         self.assertEqual(
-            values["thresholds"][DOMESTIC_CODE]["down_threshold"], Decimal("900.00"),
+            values["thresholds"][DOMESTIC_CODE]["down_threshold"],
+            Decimal("900.00"),
             "另一方向不受牵连",
         )
         self.assertEqual(len(notices), 1)
@@ -207,14 +209,15 @@ class NormalizeFillsDefaultsAndRejectsBadValues(unittest.TestCase):
         """不设上限的话，`1e999999999` 存盘要按字面量写出上亿字符（见 MAX_THRESHOLD）。"""
         raw = {
             "thresholds": {
-                DOMESTIC_CODE: {"up_threshold": "1e999999999", "down_threshold": "900.00"}
+                DOMESTIC_CODE: {
+                    "up_threshold": "1e999999999",
+                    "down_threshold": "900.00",
+                }
             }
         }
         values, notices = normalize(raw)
         self.assertIsNone(values["thresholds"][DOMESTIC_CODE]["up_threshold"])
-        self.assertEqual(
-            len(notices), 1, "另一方向照常用，只废掉越界那一项"
-        )
+        self.assertEqual(len(notices), 1, "另一方向照常用，只废掉越界那一项")
         self.assertIn("上限", notices[0])
         self.assertEqual(
             values["thresholds"][DOMESTIC_CODE]["down_threshold"], Decimal("900.00")
@@ -333,11 +336,15 @@ class NormalizeFillsDefaultsAndRejectsBadValues(unittest.TestCase):
         self.assertEqual(len(notices), 1)
 
     def test_custom_sound_needs_a_wav_path(self):
-        values, notices = normalize({"sound": {"choice": "custom", "file": "D:/铃声.mp3"}})
+        values, notices = normalize(
+            {"sound": {"choice": "custom", "file": "D:/铃声.mp3"}}
+        )
         self.assertEqual(
             values["sound"]["choice"], "system", "用的东西放不出来就退回系统提示音"
         )
-        self.assertEqual(values["sound"]["file"], "D:/铃声.mp3", "路径留着，好让人回来改")
+        self.assertEqual(
+            values["sound"]["file"], "D:/铃声.mp3", "路径留着，好让人回来改"
+        )
         self.assertEqual(len(notices), 1)
 
     def test_a_wav_path_is_kept_for_the_custom_sound(self):
@@ -355,11 +362,16 @@ class NormalizeFillsDefaultsAndRejectsBadValues(unittest.TestCase):
 
     def test_a_non_text_sound_path_is_dropped(self):
         values, notices = normalize({"sound": {"choice": "custom", "file": 42}})
-        self.assertEqual(values["sound"], {"enabled": True, "choice": "system", "file": ""})
+        self.assertEqual(
+            values["sound"], {"enabled": True, "choice": "system", "file": ""}
+        )
         self.assertEqual(len(notices), 1)
 
     def test_unknown_keys_are_ignored(self):
-        raw = {"thresholds": {"gds_AU9999": {"up_threshold": None, "odd": 1}}, "extra": 2}
+        raw = {
+            "thresholds": {"gds_AU9999": {"up_threshold": None, "odd": 1}},
+            "extra": 2,
+        }
         values, notices = normalize(raw)
         self.assertEqual(notices, ())
         self.assertEqual(
@@ -368,7 +380,9 @@ class NormalizeFillsDefaultsAndRejectsBadValues(unittest.TestCase):
         )
 
     def test_sections_of_the_wrong_shape_fall_back_to_defaults(self):
-        values, notices = normalize({"thresholds": "坏了", "advanced": [1, 2], "sound": None})
+        values, notices = normalize(
+            {"thresholds": "坏了", "advanced": [1, 2], "sound": None}
+        )
         self.assertEqual(values, default_values())
         self.assertIsInstance(notices, tuple)
 
@@ -427,8 +441,12 @@ class ValidatePointsAtTheOffendingField(unittest.TestCase):
     def test_each_market_is_checked_on_its_own(self):
         self.values["thresholds"][DOMESTIC_CODE]["up_threshold"] = Decimal("900.00")
         self.values["thresholds"][DOMESTIC_CODE]["down_threshold"] = Decimal("950.00")
-        self.values["thresholds"][INTERNATIONAL_CODE]["up_threshold"] = Decimal("4400.00")
-        self.values["thresholds"][INTERNATIONAL_CODE]["down_threshold"] = Decimal("4300.00")
+        self.values["thresholds"][INTERNATIONAL_CODE]["up_threshold"] = Decimal(
+            "4400.00"
+        )
+        self.values["thresholds"][INTERNATIONAL_CODE]["down_threshold"] = Decimal(
+            "4300.00"
+        )
         self.assertEqual(
             list(validate(self.values)), [self.down], "国际那边顺序正确就不该被牵连"
         )
@@ -544,7 +562,8 @@ class ValidatePointsAtTheOffendingField(unittest.TestCase):
         errors = validate({"thresholds": "坏了", "advanced": [1, 2], "sound": None})
         self.assertIsInstance(errors, dict, "草稿形状不对也不炸：当作没填")
         self.assertEqual(
-            [field for field in errors if field.startswith("thresholds.")], [],
+            [field for field in errors if field.startswith("thresholds.")],
+            [],
             "读不出的阈值段算全留空，不该凭空报错",
         )
 
@@ -555,7 +574,8 @@ class ValidatePointsAtTheOffendingField(unittest.TestCase):
         self.assertEqual(validate(draft), {}, "输入框里的文本照样能校验（留空即停用）")
         draft["advanced"]["rearm_ratio"] = "1.5"
         self.assertEqual(
-            list(validate(draft)), [field_id("advanced", "rearm_ratio")],
+            list(validate(draft)),
+            [field_id("advanced", "rearm_ratio")],
             "草稿里的坏值一样点名",
         )
 
@@ -607,7 +627,9 @@ class ReadsAndWritesTheFile(unittest.TestCase):
         with mock.patch("os.replace", side_effect=OSError("磁盘满了")):
             with self.assertRaises(OSError):
                 save(self.path, changed)
-        self.assertEqual(self.path.read_text(encoding="utf-8"), before, "原文件分毫未动")
+        self.assertEqual(
+            self.path.read_text(encoding="utf-8"), before, "原文件分毫未动"
+        )
         self.assertEqual(
             [item.name for item in Path(self.folder.name).iterdir()],
             ["config.json"],
@@ -636,7 +658,9 @@ class ReadsAndWritesTheFile(unittest.TestCase):
         self.assertFalse(self.path.exists())
         self.assertTrue(any("默认值" in notice for notice in notices), notices)
         self.assertEqual(
-            [item.name for item in Path(self.folder.name).iterdir()], [], "别留下半截临时文件"
+            [item.name for item in Path(self.folder.name).iterdir()],
+            [],
+            "别留下半截临时文件",
         )
 
     def test_broken_file_is_backed_up_and_defaults_run(self):
@@ -656,7 +680,9 @@ class ReadsAndWritesTheFile(unittest.TestCase):
         values, notices = load(self.path)
         self.assertEqual(values, default_values())
         self.assertTrue(self.path.with_name("config.json.bak").exists())
-        self.assertTrue(any("不是一个设置对象" in notice for notice in notices), notices)
+        self.assertTrue(
+            any("不是一个设置对象" in notice for notice in notices), notices
+        )
 
     def test_a_hand_edited_file_keeps_what_it_says(self):
         self.path.write_text(
@@ -675,7 +701,9 @@ class ReadsAndWritesTheFile(unittest.TestCase):
         )
         self.assertEqual(values["advanced"]["refresh_interval"], 120)
         self.assertIsNone(values["thresholds"][INTERNATIONAL_CODE]["up_threshold"])
-        self.assertFalse(self.path.with_name("config.json.bak").exists(), "没坏就不备份")
+        self.assertFalse(
+            self.path.with_name("config.json.bak").exists(), "没坏就不备份"
+        )
 
     def test_the_appearance_and_the_sound_travel_through_the_file(self):
         values = self.with_threshold()
@@ -723,7 +751,12 @@ class ReadsAndWritesTheFile(unittest.TestCase):
     def test_a_draft_from_the_appearance_boxes_becomes_values(self):
         draft = as_draft(default_values())
         draft["appearance"].update(
-            {"base_size": "14", "popup_seconds": "45", "topmost": True, "font": "SimSun"}
+            {
+                "base_size": "14",
+                "popup_seconds": "45",
+                "topmost": True,
+                "font": "SimSun",
+            }
         )
         values, errors = read_draft(draft)
         self.assertEqual(errors, {})
@@ -803,7 +836,9 @@ class ConfigSurvivesWindowsTextEditors(unittest.TestCase):
         values, notices = load(self.path)
         self.assertEqual(values, default_values(), "两种编码都读不出来：按默认值跑")
         self.assertTrue(any("不是文本文件" in notice for notice in notices), notices)
-        self.assertTrue(self.path.with_name("config.json.bak").exists(), "原文件留了备份")
+        self.assertTrue(
+            self.path.with_name("config.json.bak").exists(), "原文件留了备份"
+        )
 
 
 class ConfigPathFollowsTheDelivery(unittest.TestCase):
@@ -815,8 +850,9 @@ class ConfigPathFollowsTheDelivery(unittest.TestCase):
         )
 
     def test_packaged_run_puts_it_beside_the_exe(self):
-        with mock.patch.object(sys, "frozen", True, create=True), mock.patch.object(
-            sys, "executable", str(Path("D:/Apps/AurumWatch.exe"))
+        with (
+            mock.patch.object(sys, "frozen", True, create=True),
+            mock.patch.object(sys, "executable", str(Path("D:/Apps/AurumWatch.exe"))),
         ):
             self.assertEqual(config_path(), Path("D:/Apps/config.json"))
 

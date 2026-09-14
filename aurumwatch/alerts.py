@@ -94,9 +94,12 @@ def evaluate_thresholds(market, quote, state, rearm_ratio):
                         data_time=quote.time,
                     )
                 )
-        elif distance_to_line(
-            quote.price, direction, rearm_line(direction, threshold, rearm_ratio)
-        ) >= 0:
+        elif (
+            distance_to_line(
+                quote.price, direction, rearm_line(direction, threshold, rearm_ratio)
+            )
+            >= 0
+        ):
             armed.add(direction.name)
     return tuple(alerts), TriggerState(armed=frozenset(armed))
 

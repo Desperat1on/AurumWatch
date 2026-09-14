@@ -76,7 +76,9 @@ class SingleMarketEnabled(unittest.TestCase):
             INITIAL_STATES,
             RATIO,
         )
-        self.assertEqual([a.market for a in alerts], ["国内金价"], "未设阈值的市场再极端也不提醒")
+        self.assertEqual(
+            [a.market for a in alerts], ["国内金价"], "未设阈值的市场再极端也不提醒"
+        )
         self.assertEqual(states["hf_XAU"], INITIAL_STATE)
 
     def test_zero_thresholds_mean_disabled_too(self):
@@ -93,7 +95,9 @@ class SingleMarketEnabled(unittest.TestCase):
     def test_only_international_enabled_domestic_stays_quiet(self):
         quiet = dict(DOMESTIC, up_threshold=None, down_threshold=None)
         alerts, _ = evaluate_markets(
-            rounds({"国内金价": "1000.00", "国际金价": "4410.00"}, (quiet, INTERNATIONAL)),
+            rounds(
+                {"国内金价": "1000.00", "国际金价": "4410.00"}, (quiet, INTERNATIONAL)
+            ),
             INITIAL_STATES,
             RATIO,
         )
@@ -136,7 +140,8 @@ class StartupSilenceSwitch(unittest.TestCase):
             rounds({"国内金价": "960.00", "国际金价": "4350.00"}), states, RATIO
         )
         self.assertEqual(
-            [(alert.market, alert.direction) for alert in alerts], [("国内金价", UPSIDE)]
+            [(alert.market, alert.direction) for alert in alerts],
+            [("国内金价", UPSIDE)],
         )
 
     def test_silence_does_not_leak_to_the_other_market(self):
@@ -147,14 +152,17 @@ class StartupSilenceSwitch(unittest.TestCase):
             silent={"gds_AU9999"},
         )
         self.assertEqual(
-            [(alert.market, alert.direction) for alert in alerts], [("国际金价", UPSIDE)]
+            [(alert.market, alert.direction) for alert in alerts],
+            [("国际金价", UPSIDE)],
         )
 
     def test_no_silence_means_the_first_reading_alerts(self):
         alerts, _ = evaluate_markets(
             rounds({"国内金价": "970.00", "国际金价": "4350.00"}), INITIAL_STATES, RATIO
         )
-        self.assertEqual([alert.market for alert in alerts], ["国内金价"], "默认立即提醒")
+        self.assertEqual(
+            [alert.market for alert in alerts], ["国内金价"], "默认立即提醒"
+        )
 
 
 class StatesAreNotShared(unittest.TestCase):
@@ -197,7 +205,9 @@ class StatesAreNotShared(unittest.TestCase):
             states,
             RATIO,
         )
-        self.assertEqual([(a.market, a.direction) for a in alerts], [("国际金价", UPSIDE)])
+        self.assertEqual(
+            [(a.market, a.direction) for a in alerts], [("国际金价", UPSIDE)]
+        )
 
     def test_missing_quote_keeps_that_market_state(self):
         _, states = evaluate_markets(

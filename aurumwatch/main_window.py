@@ -119,7 +119,10 @@ class MainWindow:
         # 提示独占一行（两行高、按窗口宽折行）：与按钮挤一行的话，提示一长就要么被
         # 横着切掉半截、要么把按钮压扁；行高固定，提示来了走了窗口也不跳
         self._notice = tk.Label(
-            self._bottom, text=STARTUP_NOTICE, anchor="w", justify="left",
+            self._bottom,
+            text=STARTUP_NOTICE,
+            anchor="w",
+            justify="left",
             height=NOTICE_ROWS,
         )
         self._notice.pack(fill="x")
@@ -149,8 +152,13 @@ class MainWindow:
         只会被截掉半截。右下的滚动条管多出来的那些（配色在 `apply` 里整批重涂）。
         """
         frame = tk.LabelFrame(
-            self._root, text=EVENTS_TITLE, bd=1, relief="solid",
-            labelanchor="nw", padx=8, pady=6,
+            self._root,
+            text=EVENTS_TITLE,
+            bd=1,
+            relief="solid",
+            labelanchor="nw",
+            padx=8,
+            pady=6,
         )
         frame.pack(side="bottom", fill="x", padx=WINDOW_MARGIN, pady=(0, 8))
         text = tk.Text(
@@ -182,16 +190,17 @@ class MainWindow:
         self._root.minsize(*(theme.scaled(side) for side in MIN_SIZE))
         self._root.attributes("-topmost", theme.topmost)
         self._headline.configure(
-            bg=theme.bg, fg=theme.fg,
+            bg=theme.bg,
+            fg=theme.fg,
             font=theme.font(HEADLINE_STEP, bold=True),
         )
-        self._stamp.configure(
-            bg=theme.bg, fg=theme.dim, font=theme.font(STAMP_STEP)
-        )
+        self._stamp.configure(bg=theme.bg, fg=theme.dim, font=theme.font(STAMP_STEP))
         for frame in (self._cards, self._bottom, self._button_row):
             frame.configure(bg=theme.bg)
         self._notice.configure(
-            bg=theme.bg, fg=theme.warn, font=theme.font(NOTICE_STEP),
+            bg=theme.bg,
+            fg=theme.warn,
+            font=theme.font(NOTICE_STEP),
             wraplength=theme.scaled(WRAP_AT_BASE),
         )
         self._events_frame.configure(
@@ -254,24 +263,40 @@ class MainWindow:
         """一张市场卡片：标题带市场说明，正文逐行按色调摆放，末尾是市场状态。"""
         theme = self._theme
         card = tk.LabelFrame(
-            self._cards, text=f"{market.name}　{market.detail}", bg=theme.bg,
-            fg=theme.dim, font=theme.font(CARD_TITLE_STEP), bd=1,
-            relief="solid", labelanchor="nw", padx=12, pady=8,
+            self._cards,
+            text=f"{market.name}　{market.detail}",
+            bg=theme.bg,
+            fg=theme.dim,
+            font=theme.font(CARD_TITLE_STEP),
+            bd=1,
+            relief="solid",
+            labelanchor="nw",
+            padx=12,
+            pady=8,
         )
         card.pack(fill="x", pady=(0, 8))
         for line in market.lines:
             tk.Label(
-                card, text=line.text, bg=theme.bg, fg=theme.color(line.tone),
+                card,
+                text=line.text,
+                bg=theme.bg,
+                fg=theme.color(line.tone),
                 font=theme.font(
                     PRICE_STEP if line.tone == TONE_PRICE else LINE_STEP,
                     bold=line.tone == TONE_PRICE,
                 ),
-                anchor="w", justify="left", wraplength=theme.scaled(WRAP_AT_BASE),
+                anchor="w",
+                justify="left",
+                wraplength=theme.scaled(WRAP_AT_BASE),
             ).pack(anchor="w", fill="x")
         tk.Label(
-            card, text=f"状态：{market.status.text}", bg=theme.bg,
+            card,
+            text=f"状态：{market.status.text}",
+            bg=theme.bg,
             fg=theme.color(market.status.tone),
-            font=theme.font(STATUS_STEP, bold=True), anchor="w", justify="left",
+            font=theme.font(STATUS_STEP, bold=True),
+            anchor="w",
+            justify="left",
             wraplength=theme.scaled(WRAP_AT_BASE),
         ).pack(anchor="w", pady=(4, 0))
 

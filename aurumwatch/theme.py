@@ -28,7 +28,12 @@ WARN_CONTRAST = 3  # 警告色与底色的对比度下限（WCAG 的 ≥3:1，�
 
 # 视图模型给的色调 → 主题里的颜色；没列出的（normal、price）一律正文色。
 # 键取自 viewmodel 的常量：哪天改了色调名，这里跟着变，不会悄悄退成正文色。
-_TONE_FIELDS = {TONE_DIM: "dim", TONE_RISE: "rise", TONE_FALL: "fall", TONE_WARN: "warn"}
+_TONE_FIELDS = {
+    TONE_DIM: "dim",
+    TONE_RISE: "rise",
+    TONE_FALL: "fall",
+    TONE_WARN: "warn",
+}
 
 
 @dataclass(frozen=True)
@@ -96,7 +101,12 @@ class Theme:
         """窗口底部的按钮：不抢眼、鼠标移上去有手型。"""
         return self.style_button(
             tk.Button(
-                parent, text=text, command=command, relief="flat", padx=14, pady=4,
+                parent,
+                text=text,
+                command=command,
+                relief="flat",
+                padx=14,
+                pady=4,
                 cursor="hand2",
             )
         )
@@ -104,16 +114,22 @@ class Theme:
     def style_button(self, button):
         """把按钮涂成当前外观（外观看变了就再涂一遍）。"""
         button.configure(
-            font=self.font(), bg=self.field_bg, fg=self.fg,
-            activebackground=self.button_active_bg, activeforeground=self.fg,
+            font=self.font(),
+            bg=self.field_bg,
+            fg=self.fg,
+            activebackground=self.button_active_bg,
+            activeforeground=self.fg,
         )
         return button
 
     def style_entry(self, entry):
         """输入框：底色比背景略偏一点，光标用正文色。"""
         entry.configure(
-            bg=self.field_bg, fg=self.fg, insertbackground=self.fg,
-            disabledbackground=self.bg, disabledforeground=self.dim,
+            bg=self.field_bg,
+            fg=self.fg,
+            insertbackground=self.fg,
+            disabledbackground=self.bg,
+            disabledforeground=self.dim,
         )
         return entry
 
@@ -123,9 +139,14 @@ class Theme:
         字号不在这里定：文本区按哪一档由窗口说了算（见 main_window.EVENT_STEP）。
         """
         widget.configure(
-            bg=self.bg, fg=self.fg, insertbackground=self.fg,
-            selectbackground=self.button_active_bg, selectforeground=self.fg,
-            relief="flat", borderwidth=0, highlightthickness=0,
+            bg=self.bg,
+            fg=self.fg,
+            insertbackground=self.fg,
+            selectbackground=self.button_active_bg,
+            selectforeground=self.fg,
+            relief="flat",
+            borderwidth=0,
+            highlightthickness=0,
         )
         return widget
 
