@@ -58,7 +58,9 @@ class IcoShape(unittest.TestCase):
             width, height, _, _, planes, bits, length, offset = struct.unpack(
                 "<BBBBHHII", self.data[start : start + 16]
             )
-            self.assertEqual((width, height), (size % 256, size % 256), f"{size} 档的宽高")
+            self.assertEqual(
+                (width, height), (size % 256, size % 256), f"{size} 档的宽高"
+            )
             self.assertEqual((planes, bits), (1, 32), f"{size} 档的位深")
             bitmap = self.data[offset : offset + length]
             header = struct.unpack("<IiiHH", bitmap[:16])

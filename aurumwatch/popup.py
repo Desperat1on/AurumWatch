@@ -21,8 +21,8 @@ from decimal import Decimal
 from aurumwatch.alerts import DOWNSIDE, UPSIDE, Alert
 from aurumwatch.config import CUSTOM_SOUND, default_values
 from aurumwatch.failures import FailureWarning, duration_text
-from aurumwatch.viewmodel import TONE_FALL, TONE_RISE, TONE_WARN
 from aurumwatch.theme import Theme
+from aurumwatch.viewmodel import TONE_FALL, TONE_RISE, TONE_WARN
 
 POPUP_MARGIN = 24  # 距屏幕工作区边缘的留白（像素）
 POPUP_GAP = 10  # 同一角上多个弹窗之间的间距（像素）
@@ -43,7 +43,9 @@ WS_EX_TOOLWINDOW = 0x00000080
 SPI_GETWORKAREA = 0x0030
 
 _events = queue.Queue()
-_ui_errors = queue.Queue()  # 弹窗与提示音的报错，每条自带说法，由编排层取走显示在窗口底部
+_ui_errors = (
+    queue.Queue()
+)  # 弹窗与提示音的报错，每条自带说法，由编排层取走显示在窗口底部
 _root = None
 _theme = Theme.from_appearance(default_values()["appearance"])  # 编排层接手前的默认外观
 _open_popups = []  # 已弹出的窗口：[(窗口, 贴的角)]，同角叠放时数位置用
@@ -154,8 +156,11 @@ def build_card(parent, event, theme):
     card.pack(padx=2, pady=2)
     fill(card, event, theme, accent)
     tk.Label(
-        card, text=f"点击关闭 · {theme.popup_seconds} 秒后自动消失", fg=theme.faint,
-        bg=theme.bg, font=theme.font(FOOT_STEP),
+        card,
+        text=f"点击关闭 · {theme.popup_seconds} 秒后自动消失",
+        fg=theme.faint,
+        bg=theme.bg,
+        font=theme.font(FOOT_STEP),
     ).pack(anchor="w", pady=(8, 0))
     return border
 
@@ -255,24 +260,39 @@ def _fill_alert(card, alert, theme, accent):
     head = tk.Frame(card, bg=theme.bg)
     head.pack(anchor="w")
     tk.Label(
-        head, text=alert.direction, fg=accent, bg=theme.bg,
+        head,
+        text=alert.direction,
+        fg=accent,
+        bg=theme.bg,
         font=theme.font(TITLE_STEP, bold=True),
     ).pack(side="left")
     tk.Label(
-        head, text=f"  {alert.market}", fg=theme.fg, bg=theme.bg,
+        head,
+        text=f"  {alert.market}",
+        fg=theme.fg,
+        bg=theme.bg,
         font=theme.font(TITLE_STEP, bold=True),
     ).pack(side="left")
     tk.Label(
-        card, text=f"{alert.price:.2f} {alert.unit}", fg=theme.fg,
-        bg=theme.bg, font=theme.font(PRICE_STEP, bold=True),
+        card,
+        text=f"{alert.price:.2f} {alert.unit}",
+        fg=theme.fg,
+        bg=theme.bg,
+        font=theme.font(PRICE_STEP, bold=True),
     ).pack(anchor="w", pady=(6, 2))
     tk.Label(
-        card, text=f"阈值 {alert.threshold:.2f} {alert.unit}", fg=theme.dim,
-        bg=theme.bg, font=theme.font(),
+        card,
+        text=f"阈值 {alert.threshold:.2f} {alert.unit}",
+        fg=theme.dim,
+        bg=theme.bg,
+        font=theme.font(),
     ).pack(anchor="w")
     tk.Label(
-        card, text=f"数据时间 {alert.data_time:%Y-%m-%d %H:%M:%S}", fg=theme.dim,
-        bg=theme.bg, font=theme.font(),
+        card,
+        text=f"数据时间 {alert.data_time:%Y-%m-%d %H:%M:%S}",
+        fg=theme.dim,
+        bg=theme.bg,
+        font=theme.font(),
     ).pack(anchor="w")
 
 
@@ -281,32 +301,52 @@ def _fill_failure(card, warning, theme, accent):
     head = tk.Frame(card, bg=theme.bg)
     head.pack(anchor="w")
     tk.Label(
-        head, text="数据源故障", fg=accent, bg=theme.bg,
+        head,
+        text="数据源故障",
+        fg=accent,
+        bg=theme.bg,
         font=theme.font(TITLE_STEP, bold=True),
     ).pack(side="left")
     tk.Label(
-        head, text=f"  {warning.market}", fg=theme.fg, bg=theme.bg,
+        head,
+        text=f"  {warning.market}",
+        fg=theme.fg,
+        bg=theme.bg,
         font=theme.font(TITLE_STEP, bold=True),
     ).pack(side="left")
     tk.Label(
-        card, text=f"已连续 {duration_text(warning.elapsed)}取数失败", fg=theme.fg,
-        bg=theme.bg, font=theme.font(PRICE_STEP, bold=True),
+        card,
+        text=f"已连续 {duration_text(warning.elapsed)}取数失败",
+        fg=theme.fg,
+        bg=theme.bg,
+        font=theme.font(PRICE_STEP, bold=True),
     ).pack(anchor="w", pady=(6, 2))
     tk.Label(
-        card, text=f"{warning.detail} · 自 {warning.since:%H:%M:%S} 起", fg=theme.dim,
-        bg=theme.bg, font=theme.font(),
+        card,
+        text=f"{warning.detail} · 自 {warning.since:%H:%M:%S} 起",
+        fg=theme.dim,
+        bg=theme.bg,
+        font=theme.font(),
     ).pack(anchor="w")
     tk.Label(
-        card, text=f"最近错误：{_short(warning.error)}", fg=theme.dim,
-        bg=theme.bg, font=theme.font(),
+        card,
+        text=f"最近错误：{_short(warning.error)}",
+        fg=theme.dim,
+        bg=theme.bg,
+        font=theme.font(),
     ).pack(anchor="w")
     tk.Label(
-        card, text="不是行情变化；恢复后自动继续提醒", fg=theme.dim,
-        bg=theme.bg, font=theme.font(),
+        card,
+        text="不是行情变化；恢复后自动继续提醒",
+        fg=theme.dim,
+        bg=theme.bg,
+        font=theme.font(),
     ).pack(anchor="w")
 
 
-def corner_origin(corner, work_area, size, index, *, margin=POPUP_MARGIN, gap=POPUP_GAP):
+def corner_origin(
+    corner, work_area, size, index, *, margin=POPUP_MARGIN, gap=POPUP_GAP
+):
     """弹窗左上角坐标（纯函数）：贴住所选的那个角。
 
     同一个角上已经有 index 个弹窗时，依次向内错开一个身位；多到叠不下、或弹窗比
@@ -316,7 +356,11 @@ def corner_origin(corner, work_area, size, index, *, margin=POPUP_MARGIN, gap=PO
     w, h = size
     x = left + margin if corner.endswith("left") else left + width - w - margin
     step = index * (h + gap)
-    y = top + margin + step if corner.startswith("top") else top + height - h - margin - step
+    y = (
+        top + margin + step
+        if corner.startswith("top")
+        else top + height - h - margin - step
+    )
     return (
         max(left + margin, min(x, left + width - w - margin)),
         max(top + margin, min(y, top + height - h - margin)),

@@ -49,12 +49,22 @@ def round_of(market, price, data_time=AT, error="ConnectionError: 连接失败")
     return MarketRound(market=market, quote=Quote(price=Decimal(price), time=data_time))
 
 
-def panel(price, market=DOMESTIC, state=INITIAL_STATE, failure=INITIAL_FAILURE, at=AT,
-          data_time=AT):
+def panel(
+    price,
+    market=DOMESTIC,
+    state=INITIAL_STATE,
+    failure=INITIAL_FAILURE,
+    at=AT,
+    data_time=AT,
+):
     """单个市场的面板视图。"""
     return market_view(
-        round_of(market, price, data_time), state, failure, at,
-        rearm_ratio=RATIO, warn_after=WARN_AFTER,
+        round_of(market, price, data_time),
+        state,
+        failure,
+        at,
+        rearm_ratio=RATIO,
+        warn_after=WARN_AFTER,
     )
 
 
@@ -70,11 +80,15 @@ class ShowsPriceAndDataTime(unittest.TestCase):
         self.assertEqual(panel("936.30").lines[0].text, "现价：936.30 元/克")
 
     def test_international_price_is_in_usd_per_ounce(self):
-        self.assertEqual(panel("4348.35", INTERNATIONAL).lines[0].text, "现价：4348.35 美元/盎司")
+        self.assertEqual(
+            panel("4348.35", INTERNATIONAL).lines[0].text, "现价：4348.35 美元/盎司"
+        )
 
     def test_data_time_is_the_quote_time_not_the_refresh_time(self):
         text = panel_text("936.30", at=datetime(2026, 9, 12, 12, 3, 0))
-        self.assertIn("行情数据时间：2026-09-12 12:00:00", text, "显示的是读数自带的行情时刻")
+        self.assertIn(
+            "行情数据时间：2026-09-12 12:00:00", text, "显示的是读数自带的行情时刻"
+        )
 
 
 class ShowsDistanceToEachEnabledThreshold(unittest.TestCase):
@@ -146,14 +160,22 @@ class FailedRoundHidesTheStaleReading(unittest.TestCase):
 
     def test_warn_hint_follows_the_configured_duration(self):
         view = market_view(
-            round_of(DOMESTIC, None), INITIAL_STATE, FailureState(since=AT), AT,
-            rearm_ratio=RATIO, warn_after=timedelta(minutes=5),
+            round_of(DOMESTIC, None),
+            INITIAL_STATE,
+            FailureState(since=AT),
+            AT,
+            rearm_ratio=RATIO,
+            warn_after=timedelta(minutes=5),
         )
-        self.assertIn("满 5 分钟将弹出警告", "\n".join(line.text for line in view.lines))
+        self.assertIn(
+            "满 5 分钟将弹出警告", "\n".join(line.text for line in view.lines)
+        )
 
     def test_warned_failure_says_so(self):
         failure = FailureState(since=AT - timedelta(minutes=12), warned=True)
-        self.assertIn("已连续失败 12 分钟（已弹出警告）", panel_text(None, failure=failure))
+        self.assertIn(
+            "已连续失败 12 分钟（已弹出警告）", panel_text(None, failure=failure)
+        )
 
     def test_no_stale_price_or_threshold_lines(self):
         text = panel_text(None, failure=FailureState(since=AT - timedelta(minutes=3)))
@@ -174,13 +196,20 @@ class WindowFrame(unittest.TestCase):
         rounds = [round_of(market, prices[market["name"]]) for market in BOTH]
         _, states = evaluate_markets(rounds, INITIAL_STATES, RATIO)
         view = window_view(
-            rounds, states, INITIAL_FAILURES, AT,
-            interval=INTERVAL, rearm_ratio=RATIO, warn_after=WARN_AFTER,
+            rounds,
+            states,
+            INITIAL_FAILURES,
+            AT,
+            interval=INTERVAL,
+            rearm_ratio=RATIO,
+            warn_after=WARN_AFTER,
         )
         self.assertEqual(view.headline, "监视中——每 60 秒刷新")
         self.assertEqual(view.refreshed, "本次刷新：2026-09-12 12:00:00")
         self.assertEqual(view.next_refresh, "下次刷新：12:01:00（约 60 秒后）")
-        self.assertEqual([market.name for market in view.markets], ["国内金价", "国际金价"])
+        self.assertEqual(
+            [market.name for market in view.markets], ["国内金价", "国际金价"]
+        )
         self.assertEqual(
             [line.text for line in view.markets[0].lines],
             [
@@ -207,8 +236,13 @@ class WindowFrame(unittest.TestCase):
     def test_next_refresh_aligns_to_the_whole_minute(self):
         rounds = [round_of(market, "940.00") for market in BOTH]
         view = window_view(
-            rounds, INITIAL_STATES, INITIAL_FAILURES, datetime(2026, 9, 12, 12, 34, 25),
-            interval=INTERVAL, rearm_ratio=RATIO, warn_after=WARN_AFTER,
+            rounds,
+            INITIAL_STATES,
+            INITIAL_FAILURES,
+            datetime(2026, 9, 12, 12, 34, 25),
+            interval=INTERVAL,
+            rearm_ratio=RATIO,
+            warn_after=WARN_AFTER,
         )
         self.assertEqual(view.next_refresh, "下次刷新：12:35:00（约 35 秒后）")
 
@@ -222,8 +256,13 @@ class WindowFrame(unittest.TestCase):
             "hf_XAU": FailureState(since=AT - timedelta(minutes=2)),
         }
         view = window_view(
-            rounds, INITIAL_STATES, failures, AT,
-            interval=INTERVAL, rearm_ratio=RATIO, warn_after=WARN_AFTER,
+            rounds,
+            INITIAL_STATES,
+            failures,
+            AT,
+            interval=INTERVAL,
+            rearm_ratio=RATIO,
+            warn_after=WARN_AFTER,
         )
         self.assertEqual(view.markets[0].lines[0].text, "现价：936.30 元/克")
         self.assertEqual(view.markets[0].status.text, "监视中")

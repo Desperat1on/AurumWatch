@@ -76,8 +76,9 @@ def with_registry(registry):
 @contextlib.contextmanager
 def frozen(exe=EXE):
     """假装这是打包运行（exe 自己就是启动目标）。"""
-    with mock.patch.object(sys, "frozen", True, create=True), mock.patch.object(
-        sys, "executable", str(exe)
+    with (
+        mock.patch.object(sys, "frozen", True, create=True),
+        mock.patch.object(sys, "executable", str(exe)),
     ):
         yield
 
@@ -139,9 +140,12 @@ class EnabledFollowsTheRegistry(unittest.TestCase):
 
     def test_another_copy_of_the_app_counts_as_off(self):
         # exe 搬了家、重新打包换了位置：这一份开机时并不会起来，如实显示未勾选
-        with with_registry(
-            FakeRegistry({autostart.VALUE_NAME: '"D:\\旧位置\\AurumWatch.exe"'})
-        ), frozen():
+        with (
+            with_registry(
+                FakeRegistry({autostart.VALUE_NAME: '"D:\\旧位置\\AurumWatch.exe"'})
+            ),
+            frozen(),
+        ):
             self.assertFalse(autostart.enabled())
 
     def test_source_run_is_off_whatever_the_registry_says(self):
@@ -150,8 +154,12 @@ class EnabledFollowsTheRegistry(unittest.TestCase):
 
     def test_a_read_failure_counts_as_off(self):
         # 读不出来就当没有：这是「有就写、没有就当没有」的开关，不该因此挡住窗口
-        with with_registry(FakeRegistry()), frozen(), mock.patch.object(
-            FakeRegistry, "OpenKey", side_effect=PermissionError("拒绝访问")
+        with (
+            with_registry(FakeRegistry()),
+            frozen(),
+            mock.patch.object(
+                FakeRegistry, "OpenKey", side_effect=PermissionError("拒绝访问")
+            ),
         ):
             self.assertFalse(autostart.enabled())
 
@@ -214,8 +222,12 @@ class TogglingWritesAndRemoves(unittest.TestCase):
 
     def test_a_write_failure_reaches_the_caller(self):
         # 写不进去（权限等）时得让设置窗口说得出原因，不能悄悄当成设好了
-        with with_registry(FakeRegistry()), frozen(), mock.patch.object(
-            FakeRegistry, "SetValueEx", side_effect=PermissionError("拒绝访问")
+        with (
+            with_registry(FakeRegistry()),
+            frozen(),
+            mock.patch.object(
+                FakeRegistry, "SetValueEx", side_effect=PermissionError("拒绝访问")
+            ),
         ):
             with self.assertRaises(OSError):
                 autostart.set_enabled(True)

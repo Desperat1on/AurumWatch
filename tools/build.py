@@ -19,7 +19,9 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))  # 直接跑这个脚本时（`python tools/build.py`）也认得出下面那个包
+sys.path.insert(
+    0, str(ROOT)
+)  # 直接跑这个脚本时（`python tools/build.py`）也认得出下面那个包
 
 from aurumwatch.icon import write_ico  # noqa: E402  （要在上面那行之后）
 
@@ -77,15 +79,25 @@ def _run_pyinstaller():
     `aurumwatch` 包所在的地方，不指的话 PyInstaller 只认入口脚本那一层目录。
     """
     command = [
-        sys.executable, "-m", "PyInstaller",
-        "--noconfirm", "--clean",  # 重复构建是干净的一次，不弹「要覆盖吗」也不吃缓存
-        "--onefile", "--noconsole",
-        "--name", NAME,
-        "--icon", str(ICON),
-        "--paths", str(ROOT),
-        "--distpath", str(DIST),
-        "--workpath", str(WORK),
-        "--specpath", str(WORK),  # .spec 也是中间物，别落在仓库根
+        sys.executable,
+        "-m",
+        "PyInstaller",
+        "--noconfirm",
+        "--clean",  # 重复构建是干净的一次，不弹「要覆盖吗」也不吃缓存
+        "--onefile",
+        "--noconsole",
+        "--name",
+        NAME,
+        "--icon",
+        str(ICON),
+        "--paths",
+        str(ROOT),
+        "--distpath",
+        str(DIST),
+        "--workpath",
+        str(WORK),
+        "--specpath",
+        str(WORK),  # .spec 也是中间物，别落在仓库根
         str(ENTRY),
     ]
     print("构建中：" + " ".join(command) + "\n")

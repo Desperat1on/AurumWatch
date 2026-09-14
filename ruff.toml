@@ -1,0 +1,22 @@
+# ruff 配置：检查与格式化共用这一个文件。命令见 CLAUDE.md 的「测试」一节。
+#
+# 规则集是**故意收窄**的，别改成 ruff 0.16 的默认集。实测默认集在本仓库报 104 处，
+# 其中多数是本项目刻意的设计而非缺陷：
+#   DTZ*    （naive datetime）本地桌面应用，按本地日期切日志天经地义
+#   BLE001  （blind except）取数线程与弹窗路径必须吞掉异常，否则监视会死
+#   S110    （try/except/pass）同上
+# 而 RUF001-003（歧义 Unicode 字符）会把中文注释里的全角标点全判成问题：
+# 含 RUF 的那一档共报 2592 处，其中 2539 处是它——中文注释的项目必须排除。
+
+target-version = "py313"
+line-length = 88
+
+[lint]
+select = [
+    "E4", # import 相关
+    "E7", # 多余语句
+    "E9", # 运行时错误
+    "F",  # pyflakes
+    "I",  # import 排序
+    "B",  # flake8-bugbear
+]

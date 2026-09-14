@@ -15,12 +15,11 @@
 
 import os
 import threading
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from pathlib import Path
 
-from aurumwatch.alerts import Alert
 from aurumwatch.config import base_dir
-from aurumwatch.failures import FailureChange, FailureWarning, duration_text
+from aurumwatch.failures import duration_text
 
 LOG_DIR_NAME = "logs"
 LOG_PREFIX = "aurumwatch-"
@@ -178,7 +177,7 @@ class Journal:
     def _remember(self, line):
         """事件记录只留最近 RECENT_LIMIT 条：更早的只在日志里（近况 vs 档案）。"""
         self._entries.append(line)
-        del self._entries[: -RECENT_LIMIT]
+        del self._entries[:-RECENT_LIMIT]
 
     def _append(self, line, at):
         """把整行追加到当天的日志文件。
@@ -197,7 +196,9 @@ class Journal:
             if self._problem is None:
                 # 说给用户听的话摆在事件记录里（日志自己写不进去，只能摆在这儿）。
                 # 也走 line_text：记录里每一条都是「时刻 + 事由」，这一条不是例外
-                self._problem = f"日志写不进去（{getattr(exc, 'strerror', None) or exc}）"
+                self._problem = (
+                    f"日志写不进去（{getattr(exc, 'strerror', None) or exc}）"
+                )
                 self._remember(
                     line_text(f"{self._problem}，本次运行的事件只留在窗口里", at)
                 )
