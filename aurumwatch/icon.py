@@ -6,12 +6,15 @@
 边缘天然抗锯齿，也不必按几倍超采样去铺像素——256×256 那一档省下的时间最明显。
 
 画的是「一枚金币 + 一条上行的行情折线」：金币是暖金（应用默认外观的取色），折线是
-主窗口底色（深灰），末端那个点是涨破色。交付的是多尺寸 ICO——Explorer 的每种视图
-都有自己的那一档，不至于拿 16×16 去撑 256×256 的缩略图。
+主窗口底色（深灰），末端那个点是涨破色。两个出口：构建脚本要的多尺寸 **ICO**（Explorer
+的每种视图各取一档，不至于拿 16×16 去撑 256×256 的缩略图），以及窗口与任务栏要的
+**PNG**——主窗口开窗时现画一张交给 Tk（`iconphoto` 直接吃 base64 的 PNG），不落盘，
+exe 放在写不进去的目录里也照样有图标。
 """
 
 import math
 import struct
+import zlib
 from pathlib import Path
 
 # 每一档都要：小的是列表与任务栏，大的是缩略图（256 是 Explorer 的大图标档）
@@ -52,6 +55,34 @@ def write_ico(path):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(ico_bytes())
     return path
+
+
+def png_bytes(size):
+    """一张 size×size 的 PNG（纯函数）：窗口与任务栏图标用，交给 Tk 的 `iconphoto`。
+
+    走 PNG 而不是 ICO：Tk 只认位图与 PNG 数据，认不出 ICO；而 PNG 一趟 zlib 就能拼出来，
+    仍是标准库。像素来自同一个 `_render`，窗口上那颗金币与 exe 上那颗是同一幅画。
+    """
+    pixels = _render(size)
+    raw = bytearray()
+    for y in range(size):
+        raw.append(0)  # 每行前面那个 filter 字节：0 = 不过滤
+        for x in range(size):
+            raw += bytes(pixels[y * size + x])
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + _chunk(b"IHDR", struct.pack(">IIBBBBB", size, size, 8, 6, 0, 0, 0))
+        + _chunk(b"IDAT", zlib.compress(bytes(raw), 9))
+        + _chunk(b"IEND", b"")
+    )
+
+
+def _chunk(tag, data):
+    """PNG 的一个数据块：长度 + 标签 + 数据 + CRC。"""
+    return (
+        struct.pack(">I", len(data)) + tag + data
+        + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+    )
 
 
 def _render(size):

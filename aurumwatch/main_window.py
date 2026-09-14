@@ -7,13 +7,17 @@
 这里只负责摆（见 ticket 05）。
 """
 
+import base64
 import ctypes
 import tkinter as tk
 import traceback
 
+from aurumwatch import icon
 from aurumwatch.viewmodel import TONE_PRICE
 
 WINDOW_TITLE = "AurumWatch"  # 不单用「金价」：两个市场各有各的金价（见 CONTEXT.md）
+# 窗口与任务栏图标：Tk 拿这一张去缩放，64 在 100%–200% 缩放下都够用（任务栏最大 64）
+ICON_SIZE = 64
 WINDOW_MARGIN = 12
 STARTUP_NOTICE = "正在取第一轮行情……"
 EVENTS_TITLE = "事件记录"
@@ -64,6 +68,7 @@ class MainWindow:
         self._on_error = on_error
         self._root = tk.Tk()
         self._root.title(WINDOW_TITLE)
+        self._icon = _window_icon(self._root)  # 留着这个引用：Tk 图像没人引用就没了
         self._root.protocol("WM_DELETE_WINDOW", self._close)
         self._root.report_callback_exception = self._report_callback_error
 
@@ -249,6 +254,23 @@ class MainWindow:
         if not self._error_reported:
             self._error_reported = True
             show_error_box("".join(traceback.format_exception(exc_type, value, tb)))
+
+
+def _window_icon(root):
+    """把窗口与任务栏的图标换成自己那颗金币（Tk 默认是它自带的羽毛）。
+
+    图是现画的（见 `icon` 模块），不落盘：exe 放在写不进去的目录里也照样有图标。
+    换不上就当没这回事——一个图标不该拦住整个窗口。返回值要留着：Tk 图像一旦没人
+    引用就被回收，窗口会退回默认图标。
+
+    `iconphoto` 的第一个参数给 True：设置窗口是之后才开的 Toplevel，也要跟着用这个。
+    """
+    try:
+        image = tk.PhotoImage(data=base64.b64encode(icon.png_bytes(ICON_SIZE)))
+        root.iconphoto(True, image)
+        return image
+    except Exception:
+        return None
 
 
 def show_error_box(text):

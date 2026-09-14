@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """打包：把 AurumWatch 打成单文件 exe（见 ticket 07）。
 
-一次运行做完三件事：把图标画出来（`tools/icon.py`，不引图像库）、交给 PyInstaller
+一次运行做完三件事：把图标画出来（`aurumwatch/icon.py`，不引图像库）、交给 PyInstaller
 打成 `dist/AurumWatch.exe`、核对产物在不在。构建期需要 PyInstaller，它既不是运行期
 依赖也不进产物；缺了这里会给出装它的那一条命令。
 
@@ -19,9 +19,9 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))  # 直接跑这个脚本时（`python tools/build.py`）也认得出下面的包
+sys.path.insert(0, str(ROOT))  # 直接跑这个脚本时（`python tools/build.py`）也认得出下面那个包
 
-from tools.icon import write_ico  # noqa: E402  （要在上面那行之后）
+from aurumwatch.icon import write_ico  # noqa: E402  （要在上面那行之后）
 
 ENTRY = ROOT / "aurumwatch" / "__main__.py"  # 与 `python -m aurumwatch` 同一个入口
 NAME = "AurumWatch"

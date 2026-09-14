@@ -16,7 +16,9 @@
 "D:/App/Anaconda/anaconda3/envs/aurum/python.exe" tools/build.py
 ```
 
-产出 `dist/AurumWatch.exe`（单文件、带图标、无控制台窗口），中间物落在 `build/`；两者都不入库。构建期需要 PyInstaller（`pip install --no-user pyinstaller`），运行期不需要。图标由 `tools/icon.py` 以代码画出（不引图像库）。
+产出 `dist/AurumWatch.exe`（单文件、带图标、无控制台窗口），中间物落在 `build/`；两者都不入库。构建期需要 PyInstaller（`pip install --no-user pyinstaller`），运行期不需要。
+
+图标由 `aurumwatch/icon.py` 以代码画出（不引图像库）：构建时出多尺寸 ICO 交给 PyInstaller（资源管理器里那个），运行时现画一张 PNG 交给 Tk（主窗口与任务栏、设置窗口共用一个类图标），不落盘——exe 放在写不进去的目录里也照样有图标。
 
 **exe 别放在 `Program Files` 这类写不进去的目录**：`config.json` 与 `logs/` 就写在它旁边。写不进去时程序照常启动与监视，只是主窗口的事件记录里会说明「配置/日志写不进去」，设置窗口保存时也会报「保存失败」——不崩，但那台机器上改不了设置、也留不下日志。
 
