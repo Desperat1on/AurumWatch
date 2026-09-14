@@ -10,3 +10,7 @@ config.json.tmp
 
 # 运行期生成的日志（见 ADR-0003）：不入库
 logs/
+
+# 发布产物（dist/）与构建中间物（build/）（见 ticket 07）：构建脚本每次现生成，不入库
+dist/
+build/
