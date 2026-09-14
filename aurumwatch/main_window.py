@@ -13,6 +13,7 @@ import tkinter as tk
 import traceback
 
 from aurumwatch import icon
+from aurumwatch.config import parse_geometry
 from aurumwatch.viewmodel import TONE_PRICE
 
 WINDOW_TITLE = "AurumWatch"  # 不单用「金价」：两个市场各有各的金价（见 CONTEXT.md）
@@ -52,16 +53,49 @@ WRAP_AT_BASE = 520
 # 撑得比内容还高
 MIN_SIZE = (560, 620)
 
+# 记下的位置跑到屏幕外时要拉回来多少：至少留这么多像素在工作区里（与弹窗留 24px 同理，
+# 这一档给得宽些——主窗口是给人拖来拖去的东西，留一条边看得出是它）
+GEOMETRY_KEEP = 80
+
+
+def visible_geometry(saved, work_area, keep=GEOMETRY_KEEP):
+    """上次记下的窗口几何 → 这次可用的（纯函数）：跑到屏幕外的拉回可见区。
+
+    换过显示器、改过分辨率之后，上次的位置可能整个落在工作区外——照搬的话窗口就再也
+    找不到了。这里只保证「横向至少 keep 像素留在工作区里、顶边不跑到上边之外」：故意
+    摆成半出屏的（贴边看盘）仍然尊重，完全在外的才拉回来。
+
+    saved 认不出（从没记过、或形状不对）时返回 None——调用方照默认位置开窗；
+    work_area 拿不到时原样返回，不做判断。返回的形状与 `config.parse_geometry` 认的
+    一致，正是 Tk 的 `wm geometry` 能吃的那种。
+    """
+    parsed = parse_geometry(saved)
+    if parsed is None:
+        return None
+    if not work_area:
+        return saved
+    width, height, x, y = parsed
+    left, top, area_width, area_height = work_area
+    x = min(max(x, left - width + keep), left + area_width - keep)
+    y = min(max(y, top), top + area_height - keep)
+    # 符号由数字自带（`+120`／`-880`）：写成 `+-880` 的话 Tk 不认这串几何
+    return f"{width}x{height}{x:+d}{y:+d}"
+
 
 class MainWindow:
     """常驻行情面板：抬头、两个市场各一张卡片、事件记录区，底部 [打开日志][设置][立即刷新]。
 
     on_error 是窗口回调里出错时的去处（记进日志）：没有控制台可打印，异常只能这样留底。
+    geometry 是上次关窗时记下的位置与大小（编排层已经算好可用的一份，见 visible_geometry）；
+    不给就按 Tk 的默认位置开窗。关窗那一刻的位置由 `geometry()` 交回给编排层去记。
     """
 
-    def __init__(self, on_refresh, on_settings, on_logs, theme, on_error=None):
+    def __init__(
+        self, on_refresh, on_settings, on_logs, theme, on_error=None, geometry=None
+    ):
         self._view = None  # 最近一帧：换外观时照它重画一次，不必等下一轮刷新
         self._events = None  # 已摆上屏的事件记录：没变就不重画（上屏回调 200ms 跑一次）
+        self._closed_at = None  # 关窗那一刻的几何：销毁之后才问就来不及了
         # self._theme 由末尾的 apply() 统一维护：构造与改外观走同一条路，不会两处各写一份
         self._error_reported = False  # 消息框只弹一次（见 _report_callback_error）
         self._reported_errors = set()  # 记过的那几条异常：同一条不重复记
@@ -104,6 +138,9 @@ class MainWindow:
         self._cards.pack(fill="both", expand=True, padx=WINDOW_MARGIN)
 
         self.apply(theme)
+        if geometry:
+            # 摆完再给几何：最小尺寸与内容宽度都定下来了，Tk 会把这份几何按它裁一遍
+            self._root.geometry(geometry)
 
     def _build_events(self, theme):
         """事件记录区：只读文本 + 滚动条，摆在卡片与底栏之间。
@@ -129,6 +166,10 @@ class MainWindow:
     def root(self):
         """Tk 根窗：弹窗挂靠它、编排层借它排定时回调。"""
         return self._root
+
+    def geometry(self):
+        """关窗那一刻的窗口几何（编排层拿去记进配置）；还没关过则是 None。"""
+        return self._closed_at
 
     def apply(self, theme):
         """换一套外观：主窗口当场改观，之后每帧的卡片也照新的画（见 ticket 04）。
@@ -235,7 +276,14 @@ class MainWindow:
         ).pack(anchor="w", pady=(4, 0))
 
     def _close(self):
-        """关闭主窗口即退出监视：销毁根窗，mainloop 返回，进程随之结束。"""
+        """关闭主窗口即退出监视：先记下窗口几何，再销毁根窗（销毁后就问不出来了）。
+
+        最大化时这一趟不更新：那时 `wm geometry` 给的是铺满屏的那一份大小，位置却还是
+        最大化之前的——照记下来，下次开窗就是一个比屏幕还大的窗口挂在屏外。留着上次
+        正常状态下记的那份（最小化不受影响：Tk 那时给的仍是正常几何，实测过）。
+        """
+        if self._root.state() == "normal":
+            self._closed_at = self._root.geometry()
         self._root.destroy()
 
     def _report_callback_error(self, exc_type, value, tb):

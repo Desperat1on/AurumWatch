@@ -51,6 +51,8 @@ def as_draft(values):
         "sound": section(values["sound"]),
         "appearance": section(values["appearance"]),
         "advanced": section(values["advanced"]),
+        # 窗口位置不是设置项，但设置窗口保存的是整份配置：草稿里原样带着它
+        "window": dict(values["window"]),
     }
 
 
@@ -101,6 +103,11 @@ class DefaultsAreUsable(unittest.TestCase):
                 "topmost": False,
             },
             "深底浅字、涨红跌绿：与控制台版同调（见 ticket 02）",
+        )
+
+    def test_the_window_position_is_unset_until_the_first_close(self):
+        self.assertEqual(
+            default_values()["window"], {"geometry": None}, "没记过：按默认位置开窗"
         )
 
     def test_each_call_returns_a_fresh_copy(self):
@@ -311,6 +318,15 @@ class NormalizeFillsDefaultsAndRejectsBadValues(unittest.TestCase):
         self.assertIs(values["appearance"]["topmost"], False)
         self.assertEqual(len(notices), 5, "每一项各说各的")
 
+    def test_the_window_position_is_read_back_and_junk_is_forgotten(self):
+        values, notices = normalize({"window": {"geometry": "1024x768+10+20"}})
+        self.assertEqual(values["window"]["geometry"], "1024x768+10+20")
+        self.assertEqual(notices, (), "程序自己写的那一种形状不该有话说")
+
+        values, notices = normalize({"window": {"geometry": "800x600"}})
+        self.assertIsNone(values["window"]["geometry"], "认不出就当没记过")
+        self.assertEqual(len(notices), 1, "手改坏了要说一句")
+
     def test_a_blank_font_name_falls_back_to_the_default(self):
         values, notices = normalize({"appearance": {"font": "   "}})
         self.assertEqual(values["appearance"]["font"], "Microsoft YaHei UI")
@@ -502,6 +518,17 @@ class ValidatePointsAtTheOffendingField(unittest.TestCase):
         del values["sound"]["enabled"]
         self.assertEqual(validate(values), {})
 
+    def test_a_window_position_must_be_the_shape_we_write(self):
+        values = default_values()
+        self.assertEqual(validate(values), {}, "还没记过（留空）是合法的")
+        values["window"]["geometry"] = "960x640+120+80"
+        self.assertEqual(validate(values), {}, "程序写的那种形状照收")
+        values["window"]["geometry"] = "960x640"
+        self.assertEqual(list(validate(values)), [field_id("window", "geometry")])
+        older = default_values()
+        del older["window"]
+        self.assertEqual(validate(older), {}, "老配置里没有这一段也算合法")
+
     def test_a_custom_sound_with_no_file_at_all_is_rejected(self):
         values = default_values()
         values["sound"].update({"choice": "custom", "file": "  "})
@@ -672,6 +699,26 @@ class ReadsAndWritesTheFile(unittest.TestCase):
         self.assertTrue(raw["appearance"]["topmost"])
         self.assertEqual(raw["appearance"]["bg"], "#ffffff")
         self.assertEqual(raw["sound"]["file"], "D:/Sounds/叮.wav")
+
+    def test_the_window_position_travels_through_the_file(self):
+        values = self.with_threshold()
+        values["window"]["geometry"] = "1024x768+10+20"
+        save(self.path, values)
+        loaded, notices = load(self.path)
+        self.assertEqual(notices, ())
+        self.assertEqual(
+            loaded["window"]["geometry"], "1024x768+10+20", "关窗记下的位置，下次还在"
+        )
+
+    def test_a_saved_window_position_survives_a_settings_draft(self):
+        """在设置里改一次配色，不该把记下的窗口位置抹掉（保存写的是整份配置）。"""
+        values = default_values()
+        values["window"]["geometry"] = "1024x768+10+20"
+        draft = as_draft(values)
+        draft["appearance"]["base_size"] = "14"
+        loaded, errors = read_draft(draft)
+        self.assertEqual(errors, {})
+        self.assertEqual(loaded["window"]["geometry"], "1024x768+10+20")
 
     def test_a_draft_from_the_appearance_boxes_becomes_values(self):
         draft = as_draft(default_values())

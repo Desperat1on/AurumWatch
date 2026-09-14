@@ -352,7 +352,7 @@ def _show_popup(event, theme=None):
     _no_activate(window)  # 抢在首次映射前设好「不抢焦点」样式
     x, y = corner_origin(
         theme.popup_corner,
-        _work_area(),
+        work_area(_root),
         (window.winfo_reqwidth(), window.winfo_reqheight()),
         # 只数贴在同一个角上的：改过[弹窗位置]之后，还留在老角上的那些不该占新角的位置
         sum(1 for _, corner in _open_popups if corner == theme.popup_corner),
@@ -365,8 +365,12 @@ def _show_popup(event, theme=None):
     window.after(theme.popup_seconds * 1000, close)
 
 
-def _work_area():
-    """屏幕工作区 (左, 上, 宽, 高)：避开任务栏；查询失败时退回整屏。"""
+def work_area(root=None):
+    """屏幕工作区 (左, 上, 宽, 高)：避开任务栏；查询失败时退回 root 的整屏。
+
+    主窗口恢复自己上次的位置时也问这里（编排层调用，那时 Tk 根窗还没建起来，root 传
+    None）——查得到就用，查不到返回 None，由调用方决定怎么办，别拿 _root 去猜。
+    """
     try:
         rect = wintypes.RECT()
         if ctypes.windll.user32.SystemParametersInfoW(
@@ -375,7 +379,9 @@ def _work_area():
             return rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top
     except Exception:
         pass
-    return 0, 0, _root.winfo_screenwidth(), _root.winfo_screenheight()
+    if root is None:
+        return None
+    return 0, 0, root.winfo_screenwidth(), root.winfo_screenheight()
 
 
 def _no_activate(window):

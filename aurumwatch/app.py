@@ -19,7 +19,7 @@ from datetime import datetime, timedelta
 
 from aurumwatch import single_instance
 from aurumwatch.alerts import INITIAL_STATE, evaluate_markets
-from aurumwatch.config import ConfigStore, markets
+from aurumwatch.config import ConfigError, ConfigStore, markets
 from aurumwatch.failures import INITIAL_FAILURE, update_failures
 from aurumwatch.journal import (
     SETTINGS_SAVED_TEXT,
@@ -28,8 +28,13 @@ from aurumwatch.journal import (
     Journal,
     round_texts,
 )
-from aurumwatch.main_window import MainWindow, enable_dpi_awareness, show_error_box
-from aurumwatch.popup import attach, drain_ui_errors, notify, set_theme
+from aurumwatch.main_window import (
+    MainWindow,
+    enable_dpi_awareness,
+    show_error_box,
+    visible_geometry,
+)
+from aurumwatch.popup import attach, drain_ui_errors, notify, set_theme, work_area
 from aurumwatch.quotes import fetch_rounds
 from aurumwatch.schedule import next_refresh_delay
 from aurumwatch.settings_window import open_settings
@@ -61,6 +66,8 @@ def run(journal):
         on_logs=lambda: _open_logs(window, journal),
         on_error=journal.record,  # 窗口回调里的异常：留一条（没有控制台可打印）
         theme=theme,
+        # 上次关窗时摆的地方：跑到屏幕外（换过显示器）的拉回可见区，没记过就按默认位置
+        geometry=visible_geometry(store.values["window"]["geometry"], work_area()),
     )
     attach(window.root)
     set_theme(theme)  # 弹窗与主窗口用同一份外观：只造一处，不会各拿各的
@@ -73,6 +80,7 @@ def run(journal):
         _pump(window, frames, journal)  # 先摆一次：事件记录与开窗时的事不必等第一轮取数
         window.run()  # 进入窗口事件循环；关闭主窗口后返回
     finally:
+        _remember_geometry(window, store, journal)
         journal.record(SHUTDOWN_TEXT)  # 关窗与 Ctrl+C 都留一条（见 User Story 23）
 
 
@@ -90,6 +98,22 @@ def _open_logs(window, journal):
         journal.open_dir()
     except OSError as exc:
         _tell(window, journal, f"打不开日志文件夹：{exc.strerror or exc}")
+
+
+def _remember_geometry(window, store, journal):
+    """关窗时把主窗口的位置与大小记进配置：下次打开还在你摆的地方。
+
+    只在正常关窗时记（被强杀就丢这一次，与「关闭主窗口即退出」一个口径）；写不进去
+    也不影响退出——只读目录里程序本来就能照常跑（见 ticket 03），不该因为这一笔退得
+    不干不净，所以这里吞掉写失败，只在日志里留一句。
+    """
+    geometry = window.geometry()
+    if not geometry:
+        return  # 没走关窗这条路（从终端 Ctrl+C 等）：没有可记的
+    try:
+        store.save({**store.values, "window": {"geometry": geometry}})
+    except (ConfigError, OSError) as exc:
+        journal.record(f"窗口位置没记住（{getattr(exc, 'strerror', None) or exc}）")
 
 
 def _tell(window, journal, text):

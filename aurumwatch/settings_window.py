@@ -490,8 +490,13 @@ class SettingsWindow:
         self._refresh_preview()
 
     def _draft(self):
-        """控件 → 草稿：与配置文件同形，数值是输入框里的文本（留空即停用）。"""
+        """控件 → 草稿：与配置文件同形，数值是输入框里的文本（留空即停用）。
+
+        窗口那一段原样带上：主窗口的位置与大小不是设置项（窗口上没这一项），可保存
+        是**整份**写回去的——不带上的话，在设置里改一次配色就把记下的窗口位置抹了。
+        """
         return {
+            "window": {"geometry": self._store.values["window"]["geometry"]},
             "thresholds": {
                 market["code"]: {
                     direction.config_key: self._text[

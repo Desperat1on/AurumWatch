@@ -55,6 +55,11 @@ CORNER_TEXT = "、".join(text for _, text in POPUP_CORNERS)
 # 上亿字符的字符串），界面上也得按它排版
 MAX_THRESHOLD = Decimal("1000000")
 
+# 主窗口几何：程序自己写、自己读的那一个值，形状与 Tk 的 `wm geometry` 同形
+# （`960x640+120+80`；负号表示窗口落在屏幕左／上之外）。只认自己写的形状，见
+# `parse_geometry`。
+GEOMETRY_PATTERN = re.compile(r"(\d{2,5})x(\d{2,5})([+-]\d{1,5})([+-]\d{1,5})")
+
 # 颜色项：用户可调的四个颜色，值一律 #RRGGBB
 COLOR_FIELDS = (
     ("bg", "背景色"),
@@ -167,6 +172,9 @@ def default_values():
             "failure_warn_minutes": 10,
             "alert_on_start": True,
         },
+        # 主窗口几何不是设置项（界面上没有这一项），是程序关窗时自己记下来的状态：
+        # 留空 = 还没记过，按默认位置与大小开窗
+        "window": {"geometry": None},
     }
 
 
@@ -209,6 +217,7 @@ def normalize(raw):
     _read_sound(_as_dict(raw.get("sound")), values["sound"], notices)
     _read_appearance(_as_dict(raw.get("appearance")), values["appearance"], notices)
     _read_advanced(_as_dict(raw.get("advanced")), values["advanced"], notices)
+    _read_window(_as_dict(raw.get("window")), values["window"], notices)
     return values, tuple(notices)
 
 
@@ -348,6 +357,20 @@ def _read_appearance(raw, values, notices):
     _read_flags(raw, values, notices, APPEARANCE_FLAGS)
 
 
+def _read_window(raw, values, notices):
+    """窗口段：上次关窗时记下的主窗口位置与大小。
+
+    认不出就当没记过（按默认位置开窗）——这个值只由程序自己写，认不出说明是手改坏的。
+    """
+    text = raw.get("geometry")
+    if text is None:
+        return
+    if parse_geometry(text) is not None:
+        values["geometry"] = text.strip()
+    else:
+        notices.append("窗口位置认不出（不是本程序写的那种形状），已按默认位置开窗")
+
+
 def is_color(text):
     """是不是 #RRGGBB 形式的颜色（设置窗口的取色器只出这种写法）。"""
     return isinstance(text, str) and COLOR_PATTERN.fullmatch(text.strip()) is not None
@@ -361,6 +384,17 @@ def is_wav(path):
 def corner_text(name):
     """四角配置键 → 界面上的中文说法。"""
     return dict(POPUP_CORNERS).get(name, name)
+
+
+def parse_geometry(text):
+    """主窗口几何 → (宽, 高, 左, 上)；不是本程序写的那种形状则为 None（纯函数）。
+
+    形状就是 Tk 的 `wm geometry` 那一套：宽高是 2–5 位数，左／上各带一个符号。手改
+    出来的「800x600」（少半截）也算认不出——宁可当没记过、按默认位置开窗，也不要猜
+    一个位置出来。
+    """
+    match = GEOMETRY_PATTERN.fullmatch(text.strip()) if isinstance(text, str) else None
+    return tuple(int(part) for part in match.groups()) if match else None
 
 
 def _is_whole(number):
@@ -385,9 +419,9 @@ def validate(values):
 
     规则：阈值为正数（留空即停用）；同一市场两个方向都启用时跌破必须小于涨破；
     高级项与外观项的取值范围见 `ADVANCED_FIELDS`／`APPEARANCE_NUMBERS`；颜色须是
-    #RRGGBB、字体非空、弹窗位置是四角之一、选了自定义音效就得给 .wav 路径。取值可以
-    是配置值，也可以是设置窗口里读到的文本草稿——数字一律经 `parse_decimal` 认，
-    两种来源口径一致。
+    #RRGGBB、字体非空、弹窗位置是四角之一、选了自定义音效就得给 .wav 路径、窗口位置
+    要么留空要么是本程序写的那种形状。取值可以是配置值，也可以是设置窗口里读到的
+    文本草稿——数字一律经 `parse_decimal` 认，两种来源口径一致。
     """
     errors = {}
     values = _as_dict(values)
@@ -441,6 +475,12 @@ def validate(values):
     advanced = _as_dict(values.get("advanced"))
     _number_errors(errors, "advanced", advanced, ADVANCED_FIELDS)
     _flag_errors(errors, "advanced", advanced, ADVANCED_FLAGS)
+    window = _as_dict(values.get("window"))
+    geometry = window.get("geometry")
+    if geometry is not None and parse_geometry(geometry) is None:
+        errors[field_id("window", "geometry")] = (
+            "窗口位置须是「宽x高+左+上」（例：960x640+120+80）"
+        )
     return errors
 
 
