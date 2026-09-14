@@ -1,16 +1,17 @@
 # -*- coding: utf-8 -*-
-"""取数故障处理：失败记账、长时间故障警告与控制台呈现（纯函数，不碰网络与 UI）。"""
+"""取数故障处理：失败记账与长时间故障警告（纯函数，不碰网络与 UI）。
+
+故障在窗口上的呈现（错误行、连续失败时长、数据源故障状态）见 `test_viewmodel`。
+"""
 
 import unittest
 from datetime import datetime, timedelta
 from decimal import Decimal
 
 from aurumwatch.alerts import INITIAL_STATE, UPSIDE, evaluate_markets
-from aurumwatch.console import render, render_frame, warning_log_line
 from aurumwatch.failures import (
     INITIAL_FAILURE,
     FailureState,
-    FailureWarning,
     duration_text,
     update_failures,
 )
@@ -51,11 +52,6 @@ def quoted(market, price):
 def failed(market, error=TIMEOUT):
     """该市场本轮取数失败：只有故障原因，没有读数。"""
     return MarketRound(market=market, error=error)
-
-
-def console_text(round_, failure, at=AT, warn_after=WARN_AFTER):
-    """把单个市场的控制台段落拼成文本，便于断言。"""
-    return "\n".join(render(round_, INITIAL_STATE, failure, at, RATIO, warn_after))
 
 
 class MarketRoundInvariant(unittest.TestCase):
@@ -236,82 +232,6 @@ class FailureNeverAlerts(unittest.TestCase):
             [(alert.market, alert.direction) for alert in alerts],
             [("国际金价", UPSIDE)],
             "国内故障不影响国际照常判定与提醒",
-        )
-
-
-class FailureConsole(unittest.TestCase):
-    """故障轮次的控制台：醒目的错误行、连续失败时长与「数据源故障」状态。"""
-
-    def test_error_line_is_prominent_and_shows_reason(self):
-        text = console_text(
-            failed(DOMESTIC), FailureState(since=AT - timedelta(minutes=3))
-        )
-        self.assertIn("!! 数据源故障：Timeout: 请求超时", text)
-        self.assertIn("已连续失败 3 分钟（满 10 分钟将弹出警告）", text)
-        self.assertIn("状态：数据源故障", text)
-        self.assertNotIn("现价", text, "没有读数就不显示现价与距阈值距离，不用陈旧读数冒充行情")
-
-    def test_warned_market_says_warning_was_shown(self):
-        text = console_text(
-            failed(DOMESTIC), FailureState(since=AT - timedelta(minutes=12), warned=True)
-        )
-        self.assertIn("已连续失败 12 分钟（已弹出警告）", text)
-
-    def test_warn_hint_follows_the_configured_duration(self):
-        text = console_text(
-            failed(DOMESTIC),
-            FailureState(since=AT),
-            warn_after=timedelta(minutes=5),
-        )
-        self.assertIn("满 5 分钟将弹出警告", text)
-
-    def test_frame_shows_the_healthy_market_as_usual(self):
-        failures = {
-            "gds_AU9999": FailureState(since=AT - timedelta(minutes=2)),
-            "hf_XAU": INITIAL_FAILURE,
-        }
-        lines = render_frame(
-            [failed(DOMESTIC), quoted(INTERNATIONAL, "4350.00")],
-            INITIAL_STATES,
-            failures,
-            AT,
-            RATIO,
-            WARN_AFTER,
-        )
-        self.assertEqual(
-            lines,
-            [
-                "【国内金价】沪金99（上海黄金交易所 Au99.99）",
-                "  !! 数据源故障：Timeout: 请求超时",
-                "  已连续失败 2 分钟（满 10 分钟将弹出警告）",
-                "  状态：数据源故障",
-                "",
-                "【国际金价】伦敦金（XAU/USD 现货黄金）",
-                "  现价：4350.00 美元/盎司",
-                "  行情数据时间：2026-09-12 12:00:00",
-                "  涨破阈值 4400.00 美元/盎司：距触发还差 50.00",
-                "  跌破阈值 4300.00 美元/盎司：距触发还差 50.00",
-                "  状态：监视中",
-                "",
-            ],
-        )
-
-
-class WarningLogLine(unittest.TestCase):
-    """故障警告在控制台留一行带时间戳的日志，说明是数据源故障。"""
-
-    def test_log_line_carries_timestamp_duration_and_reason(self):
-        warning = FailureWarning(
-            market="国内金价",
-            detail=DOMESTIC["detail"],
-            since=AT - WARN_AFTER,
-            elapsed=WARN_AFTER,
-            error=TIMEOUT,
-        )
-        self.assertEqual(
-            warning_log_line(warning, AT),
-            "[2026-09-12 12:00:00] 数据源故障警告：国内金价已连续取数失败 10 分钟"
-            "（自 11:50:00 起；最近错误 Timeout: 请求超时）",
         )
 
 

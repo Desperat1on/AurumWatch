@@ -2,17 +2,14 @@
 """穿越触发判定单元测试（纯函数，不碰网络与 UI）。"""
 
 import unittest
-from datetime import datetime, timedelta
+from datetime import datetime
 from decimal import Decimal
 
 from aurumwatch.alerts import DOWNSIDE, INITIAL_STATE, UPSIDE, evaluate_thresholds
-from aurumwatch.console import render
-from aurumwatch.failures import INITIAL_FAILURE, FailureState
-from aurumwatch.quotes import MarketRound, Quote
+from aurumwatch.quotes import Quote
 
 AT = datetime(2026, 9, 12, 12, 0, 0)
 RATIO = Decimal("0.001")
-WARN_AFTER = timedelta(minutes=10)
 
 # 配置与领域术语同形：国内金价，涨破 950、跌破 900，重新武装带取阈值的 0.1%
 DOMESTIC = {
@@ -34,17 +31,6 @@ def fired_state(price, market=DOMESTIC):
     """先喂一次越线读数，返回触发后的状态（考察已触发行为用）。"""
     _, state = evaluate_thresholds(market, reading(price), INITIAL_STATE, RATIO)
     return state
-
-
-def console_text(price, state, market=DOMESTIC, error=None):
-    """把一次控制台渲染拼成文本，便于断言；取数失败时失败记账自本次刷新起算。"""
-    if price is None:
-        round_ = MarketRound(market=market, error=error)
-        failure = FailureState(since=AT)
-    else:
-        round_ = MarketRound(market=market, quote=reading(price))
-        failure = INITIAL_FAILURE
-    return "\n".join(render(round_, state, failure, AT, RATIO, WARN_AFTER))
 
 
 class UpsideTrigger(unittest.TestCase):
@@ -262,37 +248,6 @@ class Purity(unittest.TestCase):
         first = evaluate_thresholds(DOMESTIC, reading("955.00"), INITIAL_STATE, RATIO)
         second = evaluate_thresholds(DOMESTIC, reading("955.00"), INITIAL_STATE, RATIO)
         self.assertEqual(first, second)
-
-
-class ConsoleRendering(unittest.TestCase):
-    """控制台段落：现价、数据时间、距阈值距离、市场状态。"""
-
-    def test_armed_market_shows_distance_to_trigger(self):
-        text = console_text("940.00", INITIAL_STATE)
-        self.assertIn("距触发还差 10.00", text)  # 涨破 950 − 940
-        self.assertIn("距触发还差 40.00", text)  # 940 − 跌破 900
-        self.assertIn("状态：监视中", text)
-
-    def test_fired_market_shows_rearm_line_and_status(self):
-        state = fired_state("955.00")
-        text = console_text("955.00", state)
-        self.assertIn("涨破阈值 950.00 元/克：已触发", text)
-        self.assertIn("回落至 949.05 以下重新武装", text)
-        self.assertIn("（还需回落 5.95）", text)  # 955.00 − 949.05
-        self.assertIn("状态：已触发待回落", text)
-
-    def test_downside_fired_uses_rise_wording(self):
-        state = fired_state("898.00")
-        text = console_text("898.00", state)
-        self.assertIn("回升至 900.90 以上重新武装", text)
-        self.assertIn("（还需回升 2.90）", text)  # 900.90 − 898.00
-        self.assertIn("距触发还差 52.00", text)  # 涨破方向仍显示距离
-
-    def test_disabled_direction_shows_no_line(self):
-        market = dict(DOMESTIC, up_threshold=None)
-        text = console_text("940.00", INITIAL_STATE, market=market)
-        self.assertNotIn("涨破", text)
-        self.assertIn("跌破阈值", text)
 
 
 if __name__ == "__main__":

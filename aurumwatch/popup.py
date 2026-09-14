@@ -1,14 +1,13 @@
 # -*- coding: utf-8 -*-
 """弹窗与提示音（副作用层）。
 
-弹窗用一个常驻后台线程持有 Tk 根窗；主循环只往队列里投递提醒，
-因此弹窗既不阻塞轮询，也不与行情取数抢线程。
+弹窗是主窗口的 Toplevel：不抢焦点、点击即关、到点自动消失。轮询线程只往队列里
+投递提醒（顺带出声），Tk 那一侧的活都留在主线程，由根窗的定时回调取队列弹出。
 """
 
 import ctypes
 import os
 import queue
-import threading
 import tkinter as tk
 import winsound
 from ctypes import wintypes
@@ -28,6 +27,7 @@ POPUP_FONT = "Microsoft YaHei UI"
 DIRECTION_COLOR = {UPSIDE: "#e5534b", DOWNSIDE: "#3fb950"}
 FAILURE_ACCENT = "#e6b450"
 ERROR_SHORT_LIMIT = 72  # 弹窗里错误文本的最大字符数，超长截断
+PUMP_MS = 200  # 主线程取一次提醒队列的间隔
 
 GWL_EXSTYLE = -20
 WS_EX_NOACTIVATE = 0x08000000
@@ -35,27 +35,16 @@ WS_EX_TOOLWINDOW = 0x00000080
 SPI_GETWORKAREA = 0x0030
 
 _events = queue.Queue()
-_ui_errors = queue.Queue()  # 弹窗线程的报错，由主循环取走做成日志行（见 app.run）
-_ui_ready = threading.Event()
-_ui_error = None
-_ui_root = None
+_ui_errors = queue.Queue()  # 弹窗的报错，由编排层取走显示在窗口底部（见 app._show_frames）
+_root = None
 _open_popups = []
 
 
-def start_notifier():
-    """启动弹窗线程（进程内一次）；返回弹窗是否可用。"""
-    threading.Thread(target=_ui_main, name="弹窗", daemon=True).start()
-    ready = _ui_ready.wait(timeout=5)
-    return ready and _ui_error is None
-
-
-def notifier_error():
-    """弹窗不可用的原因；弹窗可用时为 None。"""
-    if _ui_error is not None:
-        return _ui_error
-    if not _ui_ready.is_set():
-        return "启动超时"
-    return None
+def attach(root):
+    """把弹窗挂到主窗口上（须在主线程调用）：此后提醒经根窗的定时回调弹出。"""
+    global _root
+    _root = root
+    _pump()
 
 
 def notify(event):
@@ -76,28 +65,8 @@ def _play_chime():
             pass
 
 
-def _ui_main():
-    """弹窗线程主函数：建 Tk 根窗后进入事件循环；所有 Tk 调用都留在本线程。"""
-    global _ui_root, _ui_error
-    try:
-        _enable_dpi_awareness()
-        previous_foreground = ctypes.windll.user32.GetForegroundWindow()
-        _ui_root = tk.Tk()
-        _ui_root.withdraw()
-        # 根窗创建后 Windows 会稍迟送来一次激活（此时窗口已隐藏），过一小会儿再确认还给原窗口
-        _keep_foreground(previous_foreground)
-        _ui_root.after(250, lambda: _keep_foreground(previous_foreground))
-        _pump_events()
-    except Exception as exc:
-        _ui_error = f"{type(exc).__name__}: {exc}"
-        _ui_ready.set()
-        return
-    _ui_ready.set()
-    _ui_root.mainloop()
-
-
-def _pump_events():
-    """弹窗线程内的定时泵：把队列中的提醒逐个弹出。"""
+def _pump():
+    """主线程内的定时泵：把队列中的提醒逐个弹出。"""
     while True:
         try:
             event = _events.get_nowait()
@@ -105,14 +74,13 @@ def _pump_events():
             break
         try:
             _show_popup(event)
-        except Exception as exc:  # 单个弹窗失败不拖垮弹窗线程
-            # 不直接写屏（会打断主循环的原地刷新），交给主循环做成日志行
+        except Exception as exc:  # 单个弹窗失败不拖垮窗口
             _ui_errors.put(f"{type(exc).__name__}: {exc}")
-    _ui_root.after(200, _pump_events)
+    _root.after(PUMP_MS, _pump)
 
 
 def drain_ui_errors():
-    """取走弹窗线程积累的报错（主循环调用，做成日志行）。"""
+    """取走弹窗积累的报错（编排层调用，显示在窗口底部）。"""
     messages = []
     while True:
         try:
@@ -193,7 +161,7 @@ def _show_popup(event):
         accent, fill = FAILURE_ACCENT, _fill_failure
     else:
         accent, fill = DIRECTION_COLOR.get(event.direction, FAILURE_ACCENT), _fill_alert
-    window = tk.Toplevel(_ui_root)
+    window = tk.Toplevel(_root)
     window.withdraw()
     window.overrideredirect(True)
     window.attributes("-topmost", True)
@@ -244,7 +212,7 @@ def _work_area():
             return rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top
     except Exception:
         pass
-    return 0, 0, _ui_root.winfo_screenwidth(), _ui_root.winfo_screenheight()
+    return 0, 0, _root.winfo_screenwidth(), _root.winfo_screenheight()
 
 
 def _no_activate(window):
@@ -273,14 +241,3 @@ def _keep_foreground(previous):
             user32.SetForegroundWindow(previous)
     except Exception:
         pass
-
-
-def _enable_dpi_awareness():
-    """高分屏下按系统缩放渲染窗口，文字不模糊（尽力而为）。"""
-    try:
-        ctypes.windll.shcore.SetProcessDpiAwareness(1)
-    except Exception:
-        try:
-            ctypes.windll.user32.SetProcessDPIAware()
-        except Exception:
-            pass

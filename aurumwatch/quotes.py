@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
-"""取数与解析：向数据源要行情、把响应解析成读数，以及整分对齐的刷新节奏。
+"""取数与解析：向数据源要行情、把响应解析成读数。
 
-本模块是唯一的出网处；判定核心（alerts、failures）只消费这里产出的读数。
+本模块是唯一的出网处；判定核心（alerts、failures）与视图模型只消费这里产出的读数
+（刷新节奏见 `schedule`，那里不依赖网络）。
 """
 
 import re
@@ -46,13 +47,6 @@ class MarketRound:
     @property
     def failed(self):
         return self.error is not None
-
-
-def next_refresh_delay(now, interval):
-    """返回距离下一个整分对齐刷新的秒数（下限 1 秒）；整分即 interval 的整数倍。"""
-    current = now.minute * 60 + now.second
-    next_aligned = (current // interval + 1) * interval
-    return max(1, next_aligned - current)
 
 
 def parse_quote(line, code, scale=Decimal("1")):

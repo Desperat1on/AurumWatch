@@ -5,7 +5,8 @@ import unittest
 from datetime import datetime
 from decimal import Decimal
 
-from aurumwatch.quotes import QuoteError, next_refresh_delay, parse_quote
+from aurumwatch.quotes import QuoteError, parse_quote
+from aurumwatch.schedule import next_refresh_delay
 
 # 2026-09-12 本机实测的新浪响应（网络层按 GBK 解码后的文本）
 DOMESTIC_LINE = (

@@ -1,18 +1,19 @@
 # -*- coding: utf-8 -*-
-"""国内、国际两个市场同挂一套提醒：各自独立判定、各自显示（纯函数，不碰网络与 UI）。"""
+"""国内、国际两个市场同挂一套提醒：各自独立判定（纯函数，不碰网络与 UI）。
+
+两个市场各自显示的断言（现价、单位、状态、重新武装线）见 `test_viewmodel`。
+"""
 
 import unittest
-from datetime import datetime, timedelta
+from datetime import datetime
 from decimal import Decimal
 
 from aurumwatch.alerts import DOWNSIDE, INITIAL_STATE, UPSIDE, evaluate_markets
-from aurumwatch.console import render, render_frame
-from aurumwatch.failures import INITIAL_FAILURE, FailureState
+from aurumwatch.failures import INITIAL_FAILURE
 from aurumwatch.quotes import MarketRound, Quote
 
 AT = datetime(2026, 9, 12, 12, 0, 0)
 RATIO = Decimal("0.001")
-WARN_AFTER = timedelta(minutes=10)
 
 # 配置与领域术语同形：两个市场各两个阈值；国际按美元/盎司，与国内不同量纲、数值也不同
 DOMESTIC = {
@@ -47,17 +48,6 @@ def rounds(prices, markets=BOTH_MARKETS, failing=()):
         )
         for market in markets
     ]
-
-
-def console_text(price, market, state=INITIAL_STATE, error=None):
-    """把单个市场的控制台段落拼成文本，便于断言。"""
-    if price is None:
-        round_ = MarketRound(market=market, error=error)
-        failure = FailureState(since=AT)
-    else:
-        round_ = MarketRound(market=market, quote=Quote(price=Decimal(price), time=AT))
-        failure = INITIAL_FAILURE
-    return "\n".join(render(round_, state, failure, AT, RATIO, WARN_AFTER))
 
 
 class MarketsFireOnTheirOwnLines(unittest.TestCase):
@@ -112,61 +102,6 @@ class SingleMarketEnabled(unittest.TestCase):
             [("国际金价", UPSIDE)],
             "只启用国际时，与国内单独启用时同样各判各的",
         )
-
-
-class ConsoleShowsEachMarket(unittest.TestCase):
-    """控制台两段：各显示各自的市场、单位、距阈值距离与状态。"""
-
-    def test_frame_lists_both_sections_in_market_order(self):
-        """整帧逐行比对：两段的归属、顺序、段间空行、各自的单位与状态都咬死。"""
-        prices = {"国内金价": "956.00", "国际金价": "4355.00"}
-        _, states = evaluate_markets(rounds(prices), INITIAL_STATES, RATIO)
-        self.assertEqual(
-            render_frame(rounds(prices), states, INITIAL_FAILURES, AT, RATIO, WARN_AFTER),
-            [
-                "【国内金价】沪金99（上海黄金交易所 Au99.99）",
-                "  现价：956.00 元/克",
-                "  行情数据时间：2026-09-12 12:00:00",
-                "  涨破阈值 950.00 元/克：已触发；"
-                "回落至 949.05 以下重新武装（还需回落 6.95）",
-                "  跌破阈值 900.00 元/克：距触发还差 56.00",
-                "  状态：已触发待回落",
-                "",
-                "【国际金价】伦敦金（XAU/USD 现货黄金）",
-                "  现价：4355.00 美元/盎司",
-                "  行情数据时间：2026-09-12 12:00:00",
-                "  涨破阈值 4400.00 美元/盎司：距触发还差 45.00",
-                "  跌破阈值 4300.00 美元/盎司：距触发还差 55.00",
-                "  状态：监视中",
-                "",
-            ],
-        )
-
-    def test_international_section_is_in_usd_per_ounce(self):
-        text = console_text("4348.35", INTERNATIONAL)
-        self.assertIn("【国际金价】伦敦金（XAU/USD 现货黄金）", text)
-        self.assertIn("现价：4348.35 美元/盎司", text)
-        self.assertIn("距触发还差 51.65", text)  # 4400.00 − 4348.35
-        self.assertIn("距触发还差 48.35", text)  # 4348.35 − 4300.00
-
-    def test_international_fired_shows_rearm_line(self):
-        _, states = evaluate_markets(
-            rounds({"国内金价": "940.00", "国际金价": "4410.00"}),
-            INITIAL_STATES,
-            RATIO,
-        )
-        text = console_text("4410.00", INTERNATIONAL, states["hf_XAU"])
-        self.assertIn("涨破阈值 4400.00 美元/盎司：已触发", text)
-        self.assertIn("回落至 4395.60 以下重新武装", text)
-        self.assertIn("（还需回落 14.40）", text)  # 4410.00 − 4395.60
-        self.assertIn("状态：已触发待回落", text)
-
-    def test_disabled_market_keeps_its_price_without_threshold_lines(self):
-        quiet = dict(INTERNATIONAL, up_threshold=None, down_threshold=None)
-        text = console_text("4350.00", quiet)
-        self.assertIn("现价：4350.00 美元/盎司", text, "未启用的市场仍显示行情")
-        self.assertNotIn("阈值", text)
-        self.assertIn("状态：监视中", text)
 
 
 class StatesAreNotShared(unittest.TestCase):
