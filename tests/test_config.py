@@ -196,6 +196,32 @@ class NormalizeFillsDefaultsAndRejectsBadValues(unittest.TestCase):
         self.assertIsNone(values["thresholds"][DOMESTIC_CODE]["down_threshold"])
         self.assertEqual(len(notices), 2, "每一项各说各的")
 
+    def test_a_threshold_beyond_the_ceiling_is_disabled(self):
+        """不设上限的话，`1e999999999` 存盘要按字面量写出上亿字符（见 MAX_THRESHOLD）。"""
+        raw = {
+            "thresholds": {
+                DOMESTIC_CODE: {"up_threshold": "1e999999999", "down_threshold": "900.00"}
+            }
+        }
+        values, notices = normalize(raw)
+        self.assertIsNone(values["thresholds"][DOMESTIC_CODE]["up_threshold"])
+        self.assertEqual(
+            len(notices), 1, "另一方向照常用，只废掉越界那一项"
+        )
+        self.assertIn("上限", notices[0])
+        self.assertEqual(
+            values["thresholds"][DOMESTIC_CODE]["down_threshold"], Decimal("900.00")
+        )
+
+    def test_the_threshold_ceiling_itself_is_still_allowed(self):
+        values, notices = normalize(
+            {"thresholds": {DOMESTIC_CODE: {"up_threshold": "1000000"}}}
+        )
+        self.assertEqual(notices, ())
+        self.assertEqual(
+            values["thresholds"][DOMESTIC_CODE]["up_threshold"], Decimal("1000000")
+        )
+
     def test_out_of_range_advanced_values_fall_back_to_defaults(self):
         raw = {
             "advanced": {
@@ -352,6 +378,16 @@ class ValidatePointsAtTheOffendingField(unittest.TestCase):
         self.assertEqual(list(errors), [self.up])
         self.assertIn("正数", errors[self.up])
         self.assertIn("国内金价", errors[self.up])
+
+    def test_a_threshold_beyond_the_ceiling_is_rejected_by_name(self):
+        self.values["thresholds"][DOMESTIC_CODE]["up_threshold"] = Decimal(
+            "1e999999999"
+        )
+        errors = validate(self.values)
+        self.assertEqual(list(errors), [self.up])
+        self.assertIn("1000000", errors[self.up])
+        self.values["thresholds"][DOMESTIC_CODE]["up_threshold"] = Decimal("1000000")
+        self.assertEqual(validate(self.values), {}, "上限那一点本身是可以填的")
 
     def test_text_that_is_not_a_number_is_rejected(self):
         draft = as_draft(self.values)

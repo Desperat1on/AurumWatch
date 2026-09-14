@@ -50,6 +50,11 @@ POPUP_CORNERS = (
 CORNER_NAMES = tuple(name for name, _ in POPUP_CORNERS)
 CORNER_TEXT = "、".join(text for _, text in POPUP_CORNERS)
 
+# 阈值的上限：金价再怎么涨也到不了这个数（当前国内约 950 元/克、国际约 4400 美元/盎司），
+# 而没有上限时一个天文指数就够呛——存盘要按字面量把每一位写出来（`1e999999999` 会变成
+# 上亿字符的字符串），界面上也得按它排版
+MAX_THRESHOLD = Decimal("1000000")
+
 # 颜色项：用户可调的四个颜色，值一律 #RRGGBB
 COLOR_FIELDS = (
     ("bg", "背景色"),
@@ -234,6 +239,12 @@ def _read_thresholds(raw, values, notices):
                     f"{market['name']}{direction.name}阈值须为正数，已按停用处理"
                 )
                 continue
+            if number > MAX_THRESHOLD:
+                notices.append(
+                    f"{market['name']}{direction.name}阈值超过上限 "
+                    f"{as_text(MAX_THRESHOLD)}，已按停用处理"
+                )
+                continue
             values[market["code"]][direction.config_key] = number
 
 
@@ -396,6 +407,12 @@ def validate(values):
             if number is not None and number <= 0:
                 errors[field] = (
                     f"{market['name']}{direction.name}阈值须为正数（留空即停用）"
+                )
+                continue
+            if number is not None and number > MAX_THRESHOLD:
+                errors[field] = (
+                    f"{market['name']}{direction.name}阈值须不超过 "
+                    f"{as_text(MAX_THRESHOLD)}（留空即停用）"
                 )
                 continue
             numbers[direction.config_key] = number

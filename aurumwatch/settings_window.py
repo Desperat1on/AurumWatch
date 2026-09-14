@@ -18,6 +18,7 @@ from aurumwatch.config import (
     CUSTOM_SOUND,
     MARKET_CATALOG,
     MAX_BASE_SIZE,
+    MAX_THRESHOLD,
     MAX_POPUP_SECONDS,
     MIN_BASE_SIZE,
     MIN_POPUP_SECONDS,
@@ -128,7 +129,7 @@ class SettingsWindow:
                     field_id("thresholds", market["code"], direction.config_key),
                 )
                 row += 1
-        self._hint(section, row, "留空即停用该方向")
+        self._hint(section, row, f"留空即停用该方向；最大 {as_text(MAX_THRESHOLD)}")
 
     def _build_sound(self, parent):
         """提示音：开关、系统提示音或自定义 WAV（可[选择…]与[试听]）。"""
