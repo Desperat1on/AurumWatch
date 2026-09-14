@@ -7,7 +7,8 @@
 弹窗当场换新（见 ticket 04）。
 
 事件记录与日志都由 `Journal` 管：一条事件两处同文，只是近况只留最近 50 条
-（见 ticket 05）。
+（见 ticket 05）。入口先过一道单实例（见 ticket 06）：已经有一份在跑时，这一头
+把那份的主窗口带到前台就退场，不再跑出第二份监视。
 """
 
 import queue
@@ -16,6 +17,7 @@ import threading
 import traceback
 from datetime import datetime, timedelta
 
+from aurumwatch import single_instance
 from aurumwatch.alerts import INITIAL_STATE, evaluate_markets
 from aurumwatch.config import ConfigStore, markets
 from aurumwatch.failures import INITIAL_FAILURE, update_failures
@@ -186,7 +188,14 @@ def _pump(window, frames, journal):
 
 
 def main():
-    """入口：把启动与运行期的意外兜成系统消息框，并在日志里留一条（没有控制台可打印）。"""
+    """入口：单实例把关，再把启动与运行期的意外兜成系统消息框，并在日志里留一条。
+
+    已经有一份在跑时，第二次启动不留痕迹地退场（见 ticket 06）：把那一份的主窗口
+    带到前台就够了，这里连日志都不开——「重复双击」不是一次启动。
+    """
+    if not single_instance.claim():
+        single_instance.focus_existing()
+        return
     journal = Journal()
     try:
         run(journal)

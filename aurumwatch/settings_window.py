@@ -3,14 +3,15 @@
 
 非模态——与主窗口并排，边看行情边调；[保存] 写回 config.json 并立即生效（见 ticket 03）。
 外观组里内嵌 1:1 预览卡片，它调的是弹窗那套绘制函数，改一项立刻重画（见 ticket 04）。
-[开机自启] 由 ticket 06 接。
+[开机自启] 这一项不在 config.json 里，它落在当前用户的 Run 键上（见 ticket 06 与
+`autostart` 模块的说明）：[保存] 时连同配置一起落地，源码运行时置灰。
 """
 
 import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import colorchooser, filedialog, messagebox, ttk
 
-from aurumwatch import popup
+from aurumwatch import autostart, popup
 from aurumwatch.alerts import DIRECTIONS
 from aurumwatch.config import (
     ADVANCED_FIELDS,
@@ -38,8 +39,11 @@ from aurumwatch.theme import Theme, contrast_text, ttk_style
 WINDOW_TITLE = "设置"
 ENTRY_WIDTH = 14
 FILE_ENTRY_WIDTH = 26  # 音效文件的路径不短，输入框给宽一点
-ERROR_WRAP_AT_BASE = 240  # 红字与提示的折行宽度（像素，按基准字号 10 标定）
+ERROR_WRAP_AT_BASE = 240  # 红字的折行宽度（像素，按基准字号 10 标定）：它挤在输入框右边那一列
+HINT_WRAP_AT_BASE = 320  # 组下说明的折行宽度：说明独占一行，宽些才不至于折成四行、行尾只挂一个字
 PREVIEW_HINT = "以上与真实弹窗是同一套绘制：改任一项，这里立刻变"
+AUTOSTART_HINT = "开机后自动启动本程序（写在当前用户的启动项里）"
+AUTOSTART_BLOCKED_HINT = "从源码运行时不可用（不把 Python 路径写进启动项）；打包后可用"
 
 SOUND_FLAG = field_id("sound", "enabled")
 SOUND_CHOICE = field_id("sound", "choice")
@@ -85,6 +89,10 @@ class SettingsWindow:
         self._colors = {}  # 颜色键（bg/fg/rise/fall）→ 色块按钮上的色号
         self._swatches = {}  # 颜色键 → 色块按钮
         self._traces = []  # [(变量, trace 编号)]：关窗时摘掉，别把窗口扣住
+        # [开机自启] 的真身在注册表里，不在 config.json（见 autostart 模块）：开窗时
+        # 读一次当「本次改动的起点」，[恢复默认] 回的就是它
+        self._autostart_supported = autostart.exe_path() is not None
+        self._autostart_open = autostart.enabled() if self._autostart_supported else False
 
         self._window = tk.Toplevel(parent)
         self._window.title(WINDOW_TITLE)
@@ -192,13 +200,25 @@ class SettingsWindow:
         self._preview_row(preview_side)
 
     def _build_advanced(self, parent):
-        """高级项：刷新节奏、重新武装带、故障警告与启动时的提醒。"""
+        """高级项：刷新节奏、重新武装带、故障警告，与两个启动开关。
+
+        [开机自启] 不进 `_flags`（那儿的字段按配置路径取值）：它不来自 config.json，
+        勾也勾不出错值，红字位与 `_draft` 都够不着它。
+        """
         section = self._section(parent, "高级")
         for row, field in enumerate(ADVANCED_FIELDS):
             label = f"{field.label}（{field.unit}）" if field.unit else field.label
             self._field_row(section, row, label, field_id("advanced", field.key))
-        self._flag_row(
-            section, len(ADVANCED_FIELDS), "启动时若已越线立即提醒", STARTUP_FLAG
+        row = len(ADVANCED_FIELDS)
+        self._flag_row(section, row, "启动时若已越线立即提醒", STARTUP_FLAG)
+        self._autostart = tk.BooleanVar(value=self._autostart_open)
+        self._check_row(
+            section, row + 1, "开机自启", self._autostart,
+            enabled=self._autostart_supported,
+        )
+        self._hint(
+            section, row + 2,
+            AUTOSTART_HINT if self._autostart_supported else AUTOSTART_BLOCKED_HINT,
         )
 
     def _build_exits(self, parent):
@@ -317,10 +337,7 @@ class SettingsWindow:
         """一个单选按钮：底色随窗口，别用系统那套灰底。"""
         return tk.Radiobutton(
             parent, text=text, value=value, variable=variable, command=command,
-            bg=self._theme.bg, fg=self._theme.fg,
-            activebackground=self._theme.bg, activeforeground=self._theme.fg,
-            selectcolor=self._theme.field_bg, highlightthickness=0,
-            font=self._theme.font(), anchor="w",
+            **self._toggle_look(),
         )
 
     def _flag_row(self, section, row, label, field):
@@ -330,14 +347,32 @@ class SettingsWindow:
         红字得有地方写，否则用户只看到「有项目还没填对」而不知道是哪一行。
         """
         flag = tk.BooleanVar()
-        tk.Checkbutton(
-            section, text=label, variable=flag, bg=self._theme.bg,
-            fg=self._theme.fg, font=self._theme.font(),
-            activebackground=self._theme.bg, activeforeground=self._theme.fg,
-            selectcolor=self._theme.field_bg, highlightthickness=0, anchor="w",
-        ).grid(row=row, column=0, columnspan=2, sticky="w", pady=(4, 2))
+        self._check_row(section, row, label, flag)
         self._flags[field] = flag
         self._error_label(section, row, field)
+
+    def _check_row(self, section, row, label, variable, *, enabled=True):
+        """一个勾选框（开关项那一行都长这样；`enabled=False` 即置灰不可勾）。
+
+        置灰的那一支（源码运行时的[开机自启]）没有红字位：不是「填错了」，而是
+        这一项在本次运行里就不适用，原因由那组底下的说明交代。
+        """
+        box = tk.Checkbutton(
+            section, text=label, variable=variable,
+            disabledforeground=self._theme.faint,
+            state="normal" if enabled else "disabled",
+            **self._toggle_look(),
+        )
+        box.grid(row=row, column=0, columnspan=2, sticky="w", pady=(4, 2))
+
+    def _toggle_look(self):
+        """勾选框与单选按钮共用的那几项样式（两者同名同义，只差控件类）。"""
+        return {
+            "bg": self._theme.bg, "fg": self._theme.fg,
+            "activebackground": self._theme.bg, "activeforeground": self._theme.fg,
+            "selectcolor": self._theme.field_bg, "highlightthickness": 0,
+            "font": self._theme.font(), "anchor": "w",
+        }
 
     def _error_label(self, section, row, field):
         """一个字段的红字位：照着字段标识挂起来，`_show_errors` 知道该把话说在哪。"""
@@ -351,11 +386,11 @@ class SettingsWindow:
         return label
 
     def _hint(self, section, row, text):
-        """一组设置下的口头说明。"""
+        """一组设置下的口头说明（比红字那一列宽：它下面没有别的控件）。"""
         tk.Label(
             section, text=text, bg=self._theme.bg, fg=self._theme.dim,
             font=self._theme.font(-1), anchor="w", justify="left",
-            wraplength=self._theme.scaled(ERROR_WRAP_AT_BASE),
+            wraplength=self._theme.scaled(HINT_WRAP_AT_BASE),
         ).grid(row=row, column=0, columnspan=3, sticky="w", pady=(4, 0))
 
     def _preview_row(self, parent):
@@ -384,7 +419,7 @@ class SettingsWindow:
         self._preview_hint = tk.Label(
             parent, text=PREVIEW_HINT, bg=self._theme.bg, fg=self._theme.dim,
             font=self._theme.font(-1), anchor="w", justify="left",
-            wraplength=self._theme.scaled(ERROR_WRAP_AT_BASE),
+            wraplength=self._theme.scaled(HINT_WRAP_AT_BASE),  # 说明那一档宽度（见 _hint）
         )
         self._preview_hint.pack(anchor="w", pady=(6, 0))
         self._theme.button(parent, "试弹一次", self.test_popup).pack(
@@ -435,6 +470,9 @@ class SettingsWindow:
                 entry.insert(0, as_text(_field_value(values, field)))
             for field, flag in self._flags.items():
                 flag.set(bool(_field_value(values, field)))
+            # [开机自启] 的「默认」就是开窗时的实际状态：它由注册表说了算，没有
+            # 一个「默认该不该自启」可言——[恢复默认] 只该丢下本次未保存的改动
+            self._autostart.set(self._autostart_open)
             for key, variable in self._colors.items():
                 variable.set(values["appearance"][key])
             self._font.set(values["appearance"]["font"])
@@ -610,20 +648,38 @@ class SettingsWindow:
         self._notice.configure(text=notice or "")
 
     def save(self):
-        """[保存]：校验 → 原子落盘 → 立即生效（主窗口与后续弹窗都换新外观）。"""
+        """[保存]：校验 → 落开机自启 → 原子落盘 → 立即生效（主窗口与后续弹窗都换新外观）。
+
+        开机自启先落：设不成（权限等）就整笔不保存、窗口留着把原因说清楚——配置写
+        进去了、注册表没写成的话，用户得猜是哪一半生效了。反过来的一头（注册表落
+        下了、配置写失败）没法回滚，那就如实写在红字里：这一勾是真的生效了。
+        """
         values, errors = read_draft(self._draft())
         if errors:
             self._show_errors(errors)
             self._notice.configure(text="有项目还没填对，改好再保存")
             return
         try:
+            self._apply_autostart()
+        except (OSError, ValueError) as exc:
+            reason = getattr(exc, "strerror", None) or exc
+            self._notice.configure(text=f"开机自启没设成：{reason}；设置未保存")
+            return
+        try:
             self._store.save(values)
         except (ConfigError, OSError) as exc:
-            self._notice.configure(text=f"保存失败：{exc}")
+            note = "（开机自启已改）" if self._autostart.get() != self._autostart_open else ""
+            self._notice.configure(text=f"保存失败：{exc}{note}")
             return
         self.close()
         if self._on_saved is not None:
             self._on_saved(values)
+
+    def _apply_autostart(self):
+        """把[开机自启]那一勾落到注册表（从源码运行时那一项本就是灰的，不碰）。"""
+        if not self._autostart_supported:
+            return
+        autostart.set_enabled(self._autostart.get())
 
     def restore_defaults(self):
         """[恢复默认]：二次确认后把控件填回默认值（还没写盘，反悔就[取消]）。"""

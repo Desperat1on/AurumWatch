@@ -476,13 +476,22 @@ def read_draft(draft):
     return values, {}
 
 
+def packaged():
+    """是不是打包运行（PyInstaller 在 exe 上打的 `sys.frozen` 标记）。
+
+    程序形态只有这两种，全程序认这一个谓词：配置放哪儿（`base_dir`）与开机自启能
+    不能设（`autostart`）都按它分流，各推各的迟早会走岔。
+    """
+    return bool(getattr(sys, "frozen", False))
+
+
 def base_dir():
     """程序所在目录：打包运行取 exe 同目录，源码运行取仓库根（见 ADR-0002）。
 
     `config.json` 与 `logs/` 都摆在这里，两者不许有两种定位规则——否则会出现
     「配置跟着 exe 走、日志落在别处」这种事。
     """
-    if getattr(sys, "frozen", False):
+    if packaged():
         return Path(sys.executable).resolve().parent
     return Path(__file__).resolve().parent.parent
 
