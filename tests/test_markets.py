@@ -5,18 +5,10 @@ import unittest
 from datetime import datetime, timedelta
 from decimal import Decimal
 
-from watch_gold import (
-    DOWNSIDE,
-    INITIAL_FAILURE,
-    INITIAL_STATE,
-    UPSIDE,
-    FailureState,
-    MarketRound,
-    Quote,
-    evaluate_markets,
-    render,
-    render_frame,
-)
+from aurumwatch.alerts import DOWNSIDE, INITIAL_STATE, UPSIDE, evaluate_markets
+from aurumwatch.console import render, render_frame
+from aurumwatch.failures import INITIAL_FAILURE, FailureState
+from aurumwatch.quotes import MarketRound, Quote
 
 AT = datetime(2026, 9, 12, 12, 0, 0)
 RATIO = Decimal("0.001")

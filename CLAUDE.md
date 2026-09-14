@@ -5,7 +5,7 @@
 ## 运行
 
 ```bash
-"D:/App/Anaconda/anaconda3/envs/aurum/python.exe" watch_gold.py
+"D:/App/Anaconda/anaconda3/envs/aurum/python.exe" -m aurumwatch
 ```
 
 双击场景走「启动金价监视.bat」（用环境内 python.exe 绝对路径，无需激活 conda）。
