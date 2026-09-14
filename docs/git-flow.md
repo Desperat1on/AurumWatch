@@ -8,7 +8,7 @@
 - 集成分支叫 **`develop`**。
 - 分支前缀与 tag 前缀已写入 git-flow 配置：`feature/`、`release/`、`hotfix/`，发布 tag 形如 `v0.1.0`。
 - 版本号在 `aurumwatch/__init__.py` 的 `__version__`，**全项目唯一一处**；在 `release/*` 分支上确认并提升。窗口标题栏、启动日志与 exe 的属性页都读它。
-- **本仓库没有配置任何远程**。「push 到远程」「远程同步状态」相关的规则当前无对象可施；一旦加上远程，它们立即生效。
+- 远程是 `origin`（`git@github.com:Desperat1on/AurumWatch.git`）。所以「push 到远程」「远程同步状态」那两条规则**已经生效**——推之前要取得用户确认，`--force` 一律不用。
 
 ## 分支职责
 
