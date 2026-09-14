@@ -95,7 +95,7 @@ def fetch_rounds(markets):
         code = market["code"]
         try:
             raw = fetch_raw(code)
-            line = next((l for l in raw.splitlines() if code in l), "")
+            line = next((row for row in raw.splitlines() if code in row), "")
             quote = parse_quote(line, code)
         except Exception as exc:  # 本轮失败不退出，下一轮自动重试
             rounds.append(MarketRound(market=market, error=f"{type(exc).__name__}: {exc}"))

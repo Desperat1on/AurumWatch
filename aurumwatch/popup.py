@@ -21,8 +21,8 @@ from decimal import Decimal
 from aurumwatch.alerts import DOWNSIDE, UPSIDE, Alert
 from aurumwatch.config import CUSTOM_SOUND, default_values
 from aurumwatch.failures import FailureWarning, duration_text
-from aurumwatch.viewmodel import TONE_FALL, TONE_RISE, TONE_WARN
 from aurumwatch.theme import Theme
+from aurumwatch.viewmodel import TONE_FALL, TONE_RISE, TONE_WARN
 
 POPUP_MARGIN = 24  # 距屏幕工作区边缘的留白（像素）
 POPUP_GAP = 10  # 同一角上多个弹窗之间的间距（像素）

@@ -15,12 +15,11 @@
 
 import os
 import threading
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from pathlib import Path
 
-from aurumwatch.alerts import Alert
 from aurumwatch.config import base_dir
-from aurumwatch.failures import FailureChange, FailureWarning, duration_text
+from aurumwatch.failures import duration_text
 
 LOG_DIR_NAME = "logs"
 LOG_PREFIX = "aurumwatch-"

@@ -115,7 +115,7 @@ def _render(size):
             # 折线：到底边那段距离里取最近的一条
             distance = min(
                 _segment_distance(px, py, start, end)
-                for start, end in zip(points, points[1:])
+                for start, end in zip(points, points[1:], strict=False)
             )
             color = _mix(color, LINE, _cover(distance - stroke / 2))
             # 末端那个点（涨破色）：先折线后它，末梢才不被折线盖回去
@@ -139,7 +139,7 @@ def _mix(base, top, amount):
     if amount <= 0.0:
         return base
     return tuple(
-        round(low + (high - low) * amount) for low, high in zip(base, top)
+        round(low + (high - low) * amount) for low, high in zip(base, top, strict=True)
     )
 
 

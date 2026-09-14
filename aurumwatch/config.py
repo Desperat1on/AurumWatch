@@ -13,7 +13,7 @@ import re
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from pathlib import Path
 
 from aurumwatch.alerts import DIRECTIONS

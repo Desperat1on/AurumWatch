@@ -210,7 +210,7 @@ def _mix(color, toward, ratio):
     return _hex(
         tuple(
             round(here + (there - here) * ratio)
-            for here, there in zip(_rgb(color), _rgb(toward))
+            for here, there in zip(_rgb(color), _rgb(toward), strict=True)
         )
     )
 
