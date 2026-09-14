@@ -8,6 +8,7 @@
 
 import json
 import os
+import re
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -23,10 +24,43 @@ TEMP_SUFFIX = ".tmp"
 # 刷新间隔的下限（秒）：再密就是对数据源的硬碰，也会把「下次刷新」倒计时搅得没法看
 MIN_REFRESH_INTERVAL = 5
 
+# 外观的取值边界：基准字号 8 磅起（再小，派生出来的小字就没法看）、20 磅止。
+# 20 磅这个上限是设置窗口定的：组里嵌着 1:1 的预览卡片，窗口宽度随字号一起长，
+# 24 磅时量下来已到 1924 逻辑像素，超出常见屏幕（20 磅约 1633，1080p 屏放得下）。
+# 弹窗停留 3 秒起（再短来不及看清）、600 秒止（再长等于不消失）。字号与秒数只收
+# 整数——半磅字没法看，半秒也没意义。
+MIN_BASE_SIZE, MAX_BASE_SIZE = 8, 20
+MIN_POPUP_SECONDS, MAX_POPUP_SECONDS = 3, 600
+
+# 弹窗位置：屏幕四角，配置里存英文键、界面上显示中文（见 CONTEXT.md「弹窗」）
+POPUP_CORNERS = (
+    ("bottom-right", "右下角"),
+    ("bottom-left", "左下角"),
+    ("top-right", "右上角"),
+    ("top-left", "左上角"),
+)
+CORNER_NAMES = tuple(name for name, _ in POPUP_CORNERS)
+CORNER_TEXT = "、".join(text for _, text in POPUP_CORNERS)
+
+# 颜色项：用户可调的四个颜色，值一律 #RRGGBB
+COLOR_FIELDS = (
+    ("bg", "背景色"),
+    ("fg", "文字色"),
+    ("rise", "涨破色"),
+    ("fall", "跌破色"),
+)
+COLOR_PATTERN = re.compile(r"#[0-9a-fA-F]{6}")
+
+# 音效：系统提示音，或一个自定义 WAV 文件（winsound 只认 WAV）
+SYSTEM_SOUND = "system"
+CUSTOM_SOUND = "custom"
+SOUND_CHOICES = ((SYSTEM_SOUND, "系统提示音"), (CUSTOM_SOUND, "自定义 WAV 文件"))
+WAV_SUFFIX = ".wav"
+
 
 @dataclass(frozen=True)
-class AdvancedField:
-    """高级项的一项：配置键、中文名与取值要求。
+class NumberField:
+    """一个数值项：配置键、中文名与取值要求（高级项与外观项的数值共用）。
 
     规范化（越界回退默认值）与校验（越界不许保存）共用同一份要求，免得两边走偏。
     """
@@ -40,17 +74,31 @@ class AdvancedField:
 
 
 ADVANCED_FIELDS = (
-    AdvancedField(
+    NumberField(
         "refresh_interval", "刷新间隔", "秒", f"不小于 {MIN_REFRESH_INTERVAL} 的整数秒",
         True, lambda number: number >= MIN_REFRESH_INTERVAL,
     ),
-    AdvancedField(
+    NumberField(
         "rearm_ratio", "重新武装带比例", "", "0 与 1 之间的小数（例：0.001）",
         False, lambda number: 0 < number < 1,
     ),
-    AdvancedField(
+    NumberField(
         "failure_warn_minutes", "故障警告时长", "分钟", "正整数分钟",
         True, lambda number: number >= 1,
+    ),
+)
+
+# 外观组的数值项：字号与弹窗停留（配色、字体、四角、置顶另按各自的形状读）
+APPEARANCE_NUMBERS = (
+    NumberField(
+        "base_size", "基准字号", "磅",
+        f"{MIN_BASE_SIZE} 到 {MAX_BASE_SIZE} 磅之间的整数",
+        True, lambda number: MIN_BASE_SIZE <= number <= MAX_BASE_SIZE,
+    ),
+    NumberField(
+        "popup_seconds", "弹窗停留", "秒",
+        f"{MIN_POPUP_SECONDS} 到 {MAX_POPUP_SECONDS} 之间的整数秒",
+        True, lambda number: MIN_POPUP_SECONDS <= number <= MAX_POPUP_SECONDS,
     ),
 )
 
@@ -78,7 +126,19 @@ def default_values():
             market["code"]: {direction.config_key: None for direction in DIRECTIONS}
             for market in MARKET_CATALOG
         },
-        "sound": {"enabled": True},
+        "sound": {"enabled": True, "choice": SYSTEM_SOUND, "file": ""},
+        # 外观：用户只调这几项，其余颜色由主题按它们派生（见 theme.py）
+        "appearance": {
+            "bg": "#1e1f22",
+            "fg": "#f0f0f0",
+            "rise": "#e5534b",
+            "fall": "#3fb950",
+            "font": "Microsoft YaHei UI",
+            "base_size": 10,
+            "popup_seconds": 30,
+            "popup_corner": "bottom-right",
+            "topmost": False,
+        },
         "advanced": {
             "refresh_interval": 60,
             "rearm_ratio": Decimal("0.001"),
@@ -124,9 +184,8 @@ def normalize(raw):
     notices = []
     raw = _as_dict(raw)
     _read_thresholds(_as_dict(raw.get("thresholds")), values["thresholds"], notices)
-    _read_flags(
-        _as_dict(raw.get("sound")), values["sound"], notices, (("enabled", "提示音开关"),)
-    )
+    _read_sound(_as_dict(raw.get("sound")), values["sound"], notices)
+    _read_appearance(_as_dict(raw.get("appearance")), values["appearance"], notices)
     _read_advanced(_as_dict(raw.get("advanced")), values["advanced"], notices)
     return values, tuple(notices)
 
@@ -173,13 +232,13 @@ def _read_flags(raw, values, notices, fields):
         values[key] = raw_value
 
 
-def _read_advanced(raw, values, notices):
-    """高级项：读不出的、不合要求的都回退默认值并说明。"""
-    for field in ADVANCED_FIELDS:
+def _read_numbers(raw, values, notices, fields):
+    """一组数值项：读不出的、不合要求的都回退默认值并说明。"""
+    for field in fields:
         raw_value = raw.get(field.key)
         if raw_value is None:
             continue
-        if _advanced_ok(field, raw_value):
+        if _number_ok(field, raw_value):
             number = parse_decimal(raw_value)
             values[field.key] = int(number) if field.integer_only else number
             continue
@@ -187,9 +246,83 @@ def _read_advanced(raw, values, notices):
             f"{field.label}须为{field.hint}，"
             f"已按默认值 {as_text(values[field.key])} 处理"
         )
+
+
+def _read_advanced(raw, values, notices):
+    """高级项：读不出的、不合要求的都回退默认值并说明。"""
+    _read_numbers(raw, values, notices, ADVANCED_FIELDS)
     _read_flags(
         raw, values, notices, (("alert_on_start", "启动时若已越线立即提醒"),)
     )
+
+
+def _read_sound(raw, values, notices):
+    """提示音段：开关、音效选择与 WAV 路径。
+
+    自定义音效必须落在一个 .wav 路径上（winsound 只放 WAV）：路径读不出、或不是
+    .wav 时，整条设定退回系统提示音。路径留着——好让人回来改，而不是对着空白框发呆。
+    """
+    _read_flags(raw, values, notices, (("enabled", "提示音开关"),))
+    choice = raw.get("choice")
+    if choice is not None:
+        if choice in dict(SOUND_CHOICES):
+            values["choice"] = choice
+        else:
+            notices.append("音效只能选系统提示音或自定义 WAV 文件，已改用系统提示音")
+    path = raw.get("file")
+    if isinstance(path, str):
+        values["file"] = path.strip()
+    elif path is not None:
+        values["file"] = ""  # 不是文本就没什么可留的
+    if values["choice"] == CUSTOM_SOUND and not is_wav(values["file"]):
+        notices.append("自定义音效须是 .wav 文件，本次改用系统提示音")
+        values["choice"] = SYSTEM_SOUND
+
+
+def _read_appearance(raw, values, notices):
+    """外观段：颜色认 #RRGGBB、字体认非空名称、字号与秒数认范围内的整数、
+    位置认四角之一、置顶认布尔。坏值只废掉那一项，其余照用。"""
+    for key, label in COLOR_FIELDS:
+        given = raw.get(key)
+        if given is None:
+            continue
+        if is_color(given):
+            values[key] = given.strip()
+        else:
+            notices.append(
+                f"{label}须是 #RRGGBB 形式的颜色（例：{values[key]}），已按默认值处理"
+            )
+    font = raw.get("font")
+    if font is not None:
+        if isinstance(font, str) and font.strip():
+            values["font"] = font.strip()
+        else:
+            notices.append(f"字体须是字体名称（例：{values['font']}），已按默认值处理")
+    _read_numbers(raw, values, notices, APPEARANCE_NUMBERS)
+    corner = raw.get("popup_corner")
+    if corner is not None:
+        if corner in CORNER_NAMES:
+            values["popup_corner"] = corner
+        else:
+            notices.append(
+                f"弹窗位置须是{CORNER_TEXT}之一，已按{corner_text(values['popup_corner'])}处理"
+            )
+    _read_flags(raw, values, notices, (("topmost", "主窗口置顶"),))
+
+
+def is_color(text):
+    """是不是 #RRGGBB 形式的颜色（设置窗口的取色器只出这种写法）。"""
+    return isinstance(text, str) and COLOR_PATTERN.fullmatch(text.strip()) is not None
+
+
+def is_wav(path):
+    """是不是 .wav 文件路径（大小写不论）。文件在不在是运行期的事，这里只看名字。"""
+    return isinstance(path, str) and path.strip().lower().endswith(WAV_SUFFIX)
+
+
+def corner_text(name):
+    """四角配置键 → 界面上的中文说法。"""
+    return dict(POPUP_CORNERS).get(name, name)
 
 
 def _is_whole(number):
@@ -213,8 +346,10 @@ def validate(values):
     """保存前的校验（纯函数）→ {字段标识: 中文说明}；空字典就是全部通过。
 
     规则：阈值为正数（留空即停用）；同一市场两个方向都启用时跌破必须小于涨破；
-    高级项的取值范围见 `ADVANCED_FIELDS`。取值可以是配置值，也可以是设置窗口里
-    读到的文本草稿——数字一律经 `parse_decimal` 认，两种来源口径一致。
+    高级项与外观项的取值范围见 `ADVANCED_FIELDS`／`APPEARANCE_NUMBERS`；颜色须是
+    #RRGGBB、字体非空、弹窗位置是四角之一、选了自定义音效就得给 .wav 路径。取值可以
+    是配置值，也可以是设置窗口里读到的文本草稿——数字一律经 `parse_decimal` 认，
+    两种来源口径一致。
     """
     errors = {}
     values = _as_dict(values)
@@ -242,20 +377,39 @@ def validate(values):
             errors[field_id("thresholds", market["code"], "down_threshold")] = (
                 f"{market['name']}的跌破阈值须小于涨破阈值"
             )
-    advanced = _as_dict(values.get("advanced"))
-    for field in ADVANCED_FIELDS:
-        if not _advanced_ok(field, advanced.get(field.key)):
-            errors[field_id("advanced", field.key)] = f"{field.label}须为{field.hint}"
+    appearance = _as_dict(values.get("appearance"))
+    for key, label in COLOR_FIELDS:
+        if not is_color(appearance.get(key)):
+            errors[field_id("appearance", key)] = f"{label}须是 #RRGGBB 形式的颜色（例：#1e1f22）"
+    font = appearance.get("font")
+    if not (isinstance(font, str) and font.strip()):
+        errors[field_id("appearance", "font")] = "字体须填字体名称（例：Microsoft YaHei UI）"
+    _number_errors(errors, "appearance", appearance, APPEARANCE_NUMBERS)
+    if appearance.get("popup_corner") not in CORNER_NAMES:
+        errors[field_id("appearance", "popup_corner")] = f"弹窗位置须为{CORNER_TEXT}之一"
+    sound = _as_dict(values.get("sound"))
+    if sound.get("choice") not in dict(SOUND_CHOICES):
+        errors[field_id("sound", "choice")] = "音效只能选系统提示音或自定义 WAV 文件"
+    elif sound["choice"] == CUSTOM_SOUND and not is_wav(sound.get("file")):
+        errors[field_id("sound", "file")] = "选择自定义音效时须填 .wav 文件路径"
+    _number_errors(errors, "advanced", _as_dict(values.get("advanced")), ADVANCED_FIELDS)
     return errors
 
 
-def _advanced_ok(field, raw_value):
-    """高级项读出来的数是否合要求（读不出、不是整数、越界都算不合）。"""
+def _number_errors(errors, section, given, fields):
+    """一组数值项：不合要求的把说明挂到对应字段上。"""
+    for field in fields:
+        if not _number_ok(field, given.get(field.key)):
+            errors[field_id(section, field.key)] = f"{field.label}须为{field.hint}"
+
+
+def _number_ok(field, raw_value):
+    """一组数值项里的某个数是否合要求（读不出、不是整数、越界都算不合）。"""
     try:
         number = parse_decimal(raw_value)
     except ValueError:
         return False
-    if number is None:  # 高级项不设「留空即停用」，空着就是没填
+    if number is None:  # 数值项不设「留空即停用」，空着就是没填
         return False
     if field.integer_only and not _is_whole(number):
         return False

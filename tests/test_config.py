@@ -14,6 +14,7 @@ from pathlib import Path
 from unittest import mock
 
 from aurumwatch.config import (
+    MAX_BASE_SIZE,
     ConfigError,
     ConfigStore,
     as_text,
@@ -23,6 +24,7 @@ from aurumwatch.config import (
     load,
     markets,
     normalize,
+    read_draft,
     save,
     validate,
 )
@@ -34,16 +36,20 @@ INTERNATIONAL_CODE = "hf_XAU"
 
 def as_draft(values):
     """配置值 → 设置窗口里那样的草稿：数值都成输入框里的文本，开关仍是布尔。"""
+
+    def section(items):
+        return {
+            key: value if isinstance(value, bool) else as_text(value)
+            for key, value in items.items()
+        }
+
     return {
         "thresholds": {
-            code: {key: as_text(value) for key, value in section.items()}
-            for code, section in values["thresholds"].items()
+            code: section(part) for code, part in values["thresholds"].items()
         },
-        "sound": dict(values["sound"]),
-        "advanced": {
-            key: value if isinstance(value, bool) else as_text(value)
-            for key, value in values["advanced"].items()
-        },
+        "sound": section(values["sound"]),
+        "appearance": section(values["appearance"]),
+        "advanced": section(values["advanced"]),
     }
 
 
@@ -73,7 +79,28 @@ class DefaultsAreUsable(unittest.TestCase):
         )
 
     def test_sound_defaults_to_on(self):
-        self.assertEqual(default_values()["sound"], {"enabled": True})
+        self.assertEqual(
+            default_values()["sound"],
+            {"enabled": True, "choice": "system", "file": ""},
+            "默认用系统提示音，不指定文件",
+        )
+
+    def test_appearance_defaults_keep_the_console_look(self):
+        self.assertEqual(
+            default_values()["appearance"],
+            {
+                "bg": "#1e1f22",
+                "fg": "#f0f0f0",
+                "rise": "#e5534b",
+                "fall": "#3fb950",
+                "font": "Microsoft YaHei UI",
+                "base_size": 10,
+                "popup_seconds": 30,
+                "popup_corner": "bottom-right",
+                "topmost": False,
+            },
+            "深底浅字、涨红跌绿：与控制台版同调（见 ticket 02）",
+        )
 
     def test_each_call_returns_a_fresh_copy(self):
         first = default_values()
@@ -195,6 +222,90 @@ class NormalizeFillsDefaultsAndRejectsBadValues(unittest.TestCase):
         self.assertIs(values["advanced"]["alert_on_start"], False, "关掉的开关照实读")
         self.assertEqual(len(notices), 1)
 
+    def test_appearance_is_read_back_as_given(self):
+        values, notices = normalize(
+            {
+                "appearance": {
+                    "bg": "#000000",
+                    "fg": "#ffffff",
+                    "rise": "#ff0000",
+                    "fall": "#00ff00",
+                    "font": "SimSun",
+                    "base_size": "12",  # 输入框里的文本照样认
+                    "popup_seconds": 45,
+                    "popup_corner": "top-left",
+                    "topmost": True,
+                }
+            }
+        )
+        self.assertEqual(notices, ())
+        self.assertEqual(
+            values["appearance"],
+            {
+                "bg": "#000000",
+                "fg": "#ffffff",
+                "rise": "#ff0000",
+                "fall": "#00ff00",
+                "font": "SimSun",
+                "base_size": 12,
+                "popup_seconds": 45,
+                "popup_corner": "top-left",
+                "topmost": True,
+            },
+        )
+
+    def test_odd_appearance_values_fall_back_one_by_one(self):
+        values, notices = normalize(
+            {
+                "appearance": {
+                    "bg": "浅灰",  # 不是 #RRGGBB
+                    "fg": "#f0f0f0",  # 这一项是好的
+                    "base_size": 100,  # 超出范围
+                    "popup_seconds": "60.5",  # 不是整数
+                    "popup_corner": "正中间",  # 不是四角之一
+                    "topmost": "是",  # 不是布尔
+                }
+            }
+        )
+        self.assertEqual(values["appearance"]["bg"], "#1e1f22")
+        self.assertEqual(values["appearance"]["fg"], "#f0f0f0", "好的那项不受牵连")
+        self.assertEqual(values["appearance"]["base_size"], 10)
+        self.assertEqual(values["appearance"]["popup_seconds"], 30)
+        self.assertEqual(values["appearance"]["popup_corner"], "bottom-right")
+        self.assertIs(values["appearance"]["topmost"], False)
+        self.assertEqual(len(notices), 5, "每一项各说各的")
+
+    def test_a_blank_font_name_falls_back_to_the_default(self):
+        values, notices = normalize({"appearance": {"font": "   "}})
+        self.assertEqual(values["appearance"]["font"], "Microsoft YaHei UI")
+        self.assertEqual(len(notices), 1)
+
+    def test_custom_sound_needs_a_wav_path(self):
+        values, notices = normalize({"sound": {"choice": "custom", "file": "D:/铃声.mp3"}})
+        self.assertEqual(
+            values["sound"]["choice"], "system", "用的东西放不出来就退回系统提示音"
+        )
+        self.assertEqual(values["sound"]["file"], "D:/铃声.mp3", "路径留着，好让人回来改")
+        self.assertEqual(len(notices), 1)
+
+    def test_a_wav_path_is_kept_for_the_custom_sound(self):
+        values, notices = normalize(
+            {"sound": {"choice": "custom", "file": "D:/Sounds/叮.wav"}}
+        )
+        self.assertEqual(notices, ())
+        self.assertEqual(values["sound"]["choice"], "custom")
+        self.assertEqual(values["sound"]["file"], "D:/Sounds/叮.wav")
+
+    def test_an_unknown_sound_choice_falls_back_to_the_system_sound(self):
+        values, notices = normalize({"sound": {"choice": "beep"}})
+        self.assertEqual(values["sound"]["choice"], "system")
+        self.assertEqual(len(notices), 1)
+
+    def test_a_non_text_sound_path_is_dropped(self):
+        values, notices = normalize({"sound": {"choice": "custom", "file": 42}})
+        self.assertEqual(values["sound"], {"enabled": True, "choice": "system", "file": ""})
+        self.assertEqual(len(notices), 1)
+
     def test_unknown_keys_are_ignored(self):
         raw = {"thresholds": {"gds_AU9999": {"up_threshold": None, "odd": 1}}, "extra": 2}
         values, notices = normalize(raw)
@@ -276,6 +387,58 @@ class ValidatePointsAtTheOffendingField(unittest.TestCase):
                 errors = validate(values)
                 self.assertEqual(list(errors), [field_id("advanced", key)])
                 self.assertIn(word, errors[field_id("advanced", key)])
+
+    def test_appearance_values_are_checked_by_name(self):
+        cases = (
+            ("bg", "浅灰", "颜色"),
+            ("fg", "#f0f0", "颜色"),
+            ("rise", "#gggggg", "颜色"),
+            ("font", "   ", "字体"),
+            ("base_size", 100, "磅"),
+            ("base_size", "10.5", "整数"),
+            ("base_size", "", "整数"),
+            ("popup_seconds", 0, "秒"),
+            ("popup_seconds", 601, "秒"),
+            ("popup_corner", "正中间", "位置"),
+        )
+        for key, bad, word in cases:
+            with self.subTest(key=key, bad=bad):
+                values = default_values()
+                values["appearance"][key] = bad
+                errors = validate(values)
+                self.assertEqual(list(errors), [field_id("appearance", key)])
+                self.assertIn(word, errors[field_id("appearance", key)])
+
+    def test_the_four_corners_and_a_switched_off_topmost_are_all_valid(self):
+        values = default_values()
+        for name in ("bottom-right", "bottom-left", "top-right", "top-left"):
+            with self.subTest(corner=name):
+                values["appearance"]["popup_corner"] = name
+                self.assertEqual(validate(values), {})
+        values["appearance"]["topmost"] = True
+        values["appearance"]["base_size"] = MAX_BASE_SIZE
+        values["appearance"]["popup_seconds"] = 600
+        self.assertEqual(validate(values), {}, "边界值也算数")
+
+    def test_custom_sound_must_point_at_a_wav_file(self):
+        values = default_values()
+        values["sound"].update({"choice": "custom", "file": "D:/铃声.mp3"})
+        errors = validate(values)
+        self.assertEqual(list(errors), [field_id("sound", "file")])
+        self.assertIn(".wav", errors[field_id("sound", "file")])
+        values["sound"]["file"] = "D:/Sounds/叮.wav"
+        self.assertEqual(validate(values), {})
+
+    def test_a_custom_sound_with_no_file_at_all_is_rejected(self):
+        values = default_values()
+        values["sound"].update({"choice": "custom", "file": "  "})
+        self.assertEqual(list(validate(values)), [field_id("sound", "file")])
+
+    def test_an_unknown_sound_choice_is_rejected(self):
+        values = default_values()
+        values["sound"]["choice"] = "beep"
+        errors = validate(values)
+        self.assertEqual(list(errors), [field_id("sound", "choice")])
 
     def test_malformed_sections_are_read_as_unset(self):
         errors = validate({"thresholds": "坏了", "advanced": [1, 2], "sound": None})
@@ -413,6 +576,41 @@ class ReadsAndWritesTheFile(unittest.TestCase):
         self.assertEqual(values["advanced"]["refresh_interval"], 120)
         self.assertIsNone(values["thresholds"][INTERNATIONAL_CODE]["up_threshold"])
         self.assertFalse(self.path.with_name("config.json.bak").exists(), "没坏就不备份")
+
+    def test_the_appearance_and_the_sound_travel_through_the_file(self):
+        values = self.with_threshold()
+        values["appearance"].update(
+            {
+                "bg": "#ffffff",
+                "fg": "#101010",
+                "base_size": 14,
+                "popup_seconds": 8,
+                "popup_corner": "top-left",
+                "topmost": True,
+            }
+        )
+        values["sound"].update({"choice": "custom", "file": "D:/Sounds/叮.wav"})
+        save(self.path, values)
+        loaded, notices = load(self.path)
+        self.assertEqual(notices, ())
+        self.assertEqual(loaded, values, "存进去什么就读出什么")
+        raw = json.loads(self.path.read_text(encoding="utf-8"))
+        self.assertEqual(raw["appearance"]["base_size"], 14, "字号还是 JSON 数字")
+        self.assertTrue(raw["appearance"]["topmost"])
+        self.assertEqual(raw["appearance"]["bg"], "#ffffff")
+        self.assertEqual(raw["sound"]["file"], "D:/Sounds/叮.wav")
+
+    def test_a_draft_from_the_appearance_boxes_becomes_values(self):
+        draft = as_draft(default_values())
+        draft["appearance"].update(
+            {"base_size": "14", "popup_seconds": "45", "topmost": True, "font": "SimSun"}
+        )
+        values, errors = read_draft(draft)
+        self.assertEqual(errors, {})
+        self.assertEqual(values["appearance"]["base_size"], 14, "输入框里的文本成整数")
+        self.assertEqual(values["appearance"]["popup_seconds"], 45)
+        self.assertIs(values["appearance"]["topmost"], True)
+        self.assertEqual(values["appearance"]["font"], "SimSun")
 
     def test_conflicting_directions_are_reported_but_still_run(self):
         self.path.write_text(

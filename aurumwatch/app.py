@@ -3,7 +3,8 @@
 
 分工：Tk 只在主线程碰，取数（阻塞的网络请求）放在后台线程；每一轮算好的视图
 模型经队列交给主线程上屏——窗口不因取数卡住，提醒也不会漏。可调项每轮从配置
-快照现取，所以[保存]之后无需重启（见 ticket 03）。
+快照现取，所以[保存]之后无需重启（见 ticket 03）。外观同理：保存后主窗口与后续
+弹窗当场换新（见 ticket 04）。
 """
 
 import queue
@@ -16,10 +17,11 @@ from aurumwatch.alerts import INITIAL_STATE, evaluate_markets
 from aurumwatch.config import ConfigStore, markets
 from aurumwatch.failures import INITIAL_FAILURE, update_failures
 from aurumwatch.main_window import MainWindow, enable_dpi_awareness, show_error_box
-from aurumwatch.popup import attach, drain_ui_errors, notify
+from aurumwatch.popup import attach, drain_ui_errors, notify, set_theme
 from aurumwatch.quotes import fetch_rounds
 from aurumwatch.schedule import next_refresh_delay
 from aurumwatch.settings_window import open_settings
+from aurumwatch.theme import Theme
 from aurumwatch.viewmodel import window_view
 
 PUMP_MS = 200  # 主线程取一次取数结果的间隔
@@ -38,10 +40,12 @@ def run():
     window = MainWindow(
         on_refresh=wake.set,
         on_settings=lambda: open_settings(
-            window.root, store, on_saved=lambda _values: window.show_notice("设置已保存")
+            window.root, store, on_saved=lambda values: _applied(window, values)
         ),
+        theme=Theme.from_appearance(store.values["appearance"]),
     )
     attach(window.root)
+    set_theme(Theme.from_appearance(store.values["appearance"]))
     if notices:  # 配置回退这类事，ticket 05 起并入事件记录与落盘日志
         window.show_notice("；".join(notices))
     threading.Thread(
@@ -49,6 +53,14 @@ def run():
     ).start()
     _show_frames(window, frames)
     window.run()
+
+
+def _applied(window, values):
+    """[保存]之后：主窗口与后续弹窗当场换用新外观（阈值与提示音由轮询线程按快照取）。"""
+    theme = Theme.from_appearance(values["appearance"])
+    set_theme(theme)
+    window.apply(theme)
+    window.show_notice("设置已保存")
 
 
 def _poll_loop(frames, wake, store):
@@ -80,9 +92,8 @@ def _poll_loop(frames, wake, store):
         )
         warn_after = timedelta(minutes=advanced["failure_warn_minutes"])
         failures, warnings = update_failures(rounds, failures, at, warn_after)
-        sound = cfg["sound"]["enabled"]
         for event in (*alerts, *warnings):
-            notify(event, sound=sound)
+            notify(event, sound=cfg["sound"])
         frames.put(
             window_view(
                 rounds,
@@ -102,7 +113,10 @@ def _poll_loop(frames, wake, store):
 
 
 def _show_frames(window, frames):
-    """主线程：把取数线程算好的视图模型摆上窗口，并转达弹窗的报错。"""
+    """主线程：把取数线程算好的视图模型摆上窗口，并转达弹窗与提示音的报错。
+
+    每条报错自带说法（「弹窗显示失败：…」「提示音：…」），这里只负责连起来显示。
+    """
     while True:
         try:
             view = frames.get_nowait()
@@ -111,7 +125,7 @@ def _show_frames(window, frames):
         window.show(view)
     messages = drain_ui_errors()
     if messages:
-        window.show_notice("弹窗显示失败：" + "；".join(messages))
+        window.show_notice("；".join(messages))
     window.root.after(PUMP_MS, lambda: _show_frames(window, frames))
 
 
