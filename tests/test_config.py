@@ -6,6 +6,7 @@
 """
 
 import json
+import locale
 import sys
 import tempfile
 import unittest
@@ -214,6 +215,15 @@ class NormalizeFillsDefaultsAndRejectsBadValues(unittest.TestCase):
         self.assertEqual(values["advanced"]["refresh_interval"], 60)
         self.assertEqual(len(notices), 1)
 
+    def test_absurdly_large_advanced_values_fall_back_to_defaults(self):
+        """天文数字会喂给 `timedelta()` 与 `Event.wait()`：放进去就是把取数线程弄死。"""
+        values, notices = normalize(
+            {"advanced": {"refresh_interval": 10**8, "failure_warn_minutes": 10**12}}
+        )
+        self.assertEqual(values["advanced"]["refresh_interval"], 60)
+        self.assertEqual(values["advanced"]["failure_warn_minutes"], 10)
+        self.assertEqual(len(notices), 2, "两项各说各的")
+
     def test_switches_accept_only_booleans(self):
         values, notices = normalize(
             {"sound": {"enabled": "yes"}, "advanced": {"alert_on_start": False}}
@@ -376,9 +386,11 @@ class ValidatePointsAtTheOffendingField(unittest.TestCase):
             ("refresh_interval", 4, "秒"),
             ("refresh_interval", 60.5, "整数"),
             ("refresh_interval", "", "秒"),
+            ("refresh_interval", 10**8, "秒"),  # 上限：再长会喂出 OverflowError
             ("rearm_ratio", Decimal("0"), "0 与 1"),
             ("rearm_ratio", Decimal("1"), "0 与 1"),
             ("failure_warn_minutes", 0, "分钟"),
+            ("failure_warn_minutes", 10**12, "分钟"),
         )
         for key, bad, word in cases:
             with self.subTest(key=key, bad=bad):
@@ -658,6 +670,57 @@ class ReadsAndWritesTheFile(unittest.TestCase):
             "手改出来的顺序不擅自改，只是不给保存",
         )
         self.assertTrue(any("跌破" in notice for notice in notices))
+
+
+class ConfigSurvivesWindowsTextEditors(unittest.TestCase):
+    """配置文件是给人改的：记事本、PowerShell 存出来的 BOM 版与 ANSI 版仍是那份配置。
+
+    被判成坏文件的代价不是「打不开」——那还算看得见：是备份走人、四个阈值静默丢回
+    默认值，用户还以为监视开着（见 ticket 05 的事件记录）。
+    """
+
+    def setUp(self):
+        self.folder = tempfile.TemporaryDirectory()
+        self.addCleanup(self.folder.cleanup)
+        self.path = Path(self.folder.name) / "config.json"
+        # 音效那段带中文：ANSI 编码下它会变成非 UTF-8 字节，才真的逼出编码回退那一步
+        self.written = {
+            "thresholds": {DOMESTIC_CODE: {"up_threshold": "950.00"}},
+            "sound": {"file": "D:/音效/叮.wav"},
+        }
+
+    def written_values(self):
+        return json.dumps(self.written, ensure_ascii=False)
+
+    def test_a_utf8_file_with_a_bom_still_reads(self):
+        self.path.write_bytes(b"\xef\xbb\xbf" + self.written_values().encode("utf-8"))
+        values, notices = load(self.path)
+        self.assertEqual(notices, (), "带 BOM 的手改文件是常态，不该当坏的")
+        self.assertEqual(
+            values["thresholds"][DOMESTIC_CODE]["up_threshold"], Decimal("950.00")
+        )
+        self.assertEqual(values["sound"]["file"], "D:/音效/叮.wav")
+
+    def test_a_file_in_the_local_ansi_encoding_still_reads(self):
+        encoding = locale.getpreferredencoding(False)  # 简中 Windows 上是 cp936
+        try:
+            raw = self.written_values().encode(encoding)
+        except UnicodeEncodeError:
+            self.skipTest(f"{encoding} 编不出中文，这条在本机没得验")
+        self.path.write_bytes(raw)
+        values, notices = load(self.path)
+        self.assertEqual(notices, ())
+        self.assertEqual(
+            values["thresholds"][DOMESTIC_CODE]["up_threshold"], Decimal("950.00")
+        )
+        self.assertEqual(values["sound"]["file"], "D:/音效/叮.wav")
+
+    def test_a_file_that_is_not_text_at_all_still_recovers(self):
+        self.path.write_bytes(b"\xff\xff\xff\xff")
+        values, notices = load(self.path)
+        self.assertEqual(values, default_values(), "两种编码都读不出来：按默认值跑")
+        self.assertTrue(any("不是文本文件" in notice for notice in notices), notices)
+        self.assertTrue(self.path.with_name("config.json.bak").exists(), "原文件留了备份")
 
 
 class ConfigPathFollowsTheDelivery(unittest.TestCase):

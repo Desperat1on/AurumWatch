@@ -7,6 +7,7 @@
 """
 
 import json
+import locale
 import os
 import re
 import sys
@@ -21,8 +22,15 @@ CONFIG_NAME = "config.json"
 BACKUP_NAME = "config.json.bak"
 TEMP_SUFFIX = ".tmp"
 
-# 刷新间隔的下限（秒）：再密就是对数据源的硬碰，也会把「下次刷新」倒计时搅得没法看
+# 刷新间隔的上下限（秒）：下限再密就是对数据源的硬碰，也会把「下次刷新」倒计时搅得
+# 没法看；上限一小时——再长就不算「盯着行情」了，而「整分对齐」的算法也只在小时以内
+# 自洽。上限不是审美问题：这些数会喂给 `Event.wait()` 与 `timedelta()`，天文数字会让
+# 取数线程带着异常死掉（没有控制台，谁也不知道监视已经不在了）。
 MIN_REFRESH_INTERVAL = 5
+MAX_REFRESH_INTERVAL = 3600
+
+# 故障警告时长的上限（分钟）：一天。再长等于「等你想起来看的时候黄花菜都凉了」
+MAX_FAILURE_WARN_MINUTES = 24 * 60
 
 # 外观的取值边界：基准字号 8 磅起（再小，派生出来的小字就没法看）、20 磅止。
 # 20 磅这个上限是设置窗口定的：组里嵌着 1:1 的预览卡片，窗口宽度随字号一起长，
@@ -82,16 +90,18 @@ class NumberField:
 
 ADVANCED_FIELDS = (
     NumberField(
-        "refresh_interval", "刷新间隔", "秒", f"不小于 {MIN_REFRESH_INTERVAL} 的整数秒",
-        True, lambda number: number >= MIN_REFRESH_INTERVAL,
+        "refresh_interval", "刷新间隔", "秒",
+        f"{MIN_REFRESH_INTERVAL} 到 {MAX_REFRESH_INTERVAL} 之间的整数秒",
+        True, lambda number: MIN_REFRESH_INTERVAL <= number <= MAX_REFRESH_INTERVAL,
     ),
     NumberField(
         "rearm_ratio", "重新武装带比例", "", "0 与 1 之间的小数（例：0.001）",
         False, lambda number: 0 < number < 1,
     ),
     NumberField(
-        "failure_warn_minutes", "故障警告时长", "分钟", "正整数分钟",
-        True, lambda number: number >= 1,
+        "failure_warn_minutes", "故障警告时长", "分钟",
+        f"1 到 {MAX_FAILURE_WARN_MINUTES} 之间的整数分钟",
+        True, lambda number: 1 <= number <= MAX_FAILURE_WARN_MINUTES,
     ),
 )
 
@@ -465,6 +475,25 @@ def config_path():
     return base_dir() / CONFIG_NAME
 
 
+def read_text(path):
+    """把配置文件读成文本：UTF-8（可带 BOM）优先，读不出来再按本机 ANSI 编码试一次。
+
+    配置文件是给人改的：记事本存成「ANSI」（简中即 GBK），PowerShell 5.1 的
+    `Set-Content -Encoding UTF8` 与老记事本会加 BOM——那些都仍是**我们那份**配置，
+    不该被判成坏文件：一旦判坏就是备份走人、四个阈值静默丢回默认值，用户还以为
+    监视开着（见 ticket 05 的事件记录，那里至少留得下一条说明）。
+    """
+    raw = Path(path).read_bytes()
+    fallback = locale.getpreferredencoding(False) or "utf-8"  # 本机 ANSI：简中是 cp936
+    failure = None
+    for encoding in ("utf-8-sig", fallback):
+        try:
+            return raw.decode(encoding)
+        except UnicodeDecodeError as exc:
+            failure = exc
+    raise failure
+
+
 def dumps(values):
     """配置 → 文件文本：缩进两格、中文不转义，小数写成字符串。
 
@@ -523,9 +552,13 @@ def load(path):
             )
         return values, (f"未找到配置文件，已按默认值生成 {path.name}",)
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"), parse_float=Decimal)
+        text = read_text(path)
     except OSError as exc:
         return _recover(path, f"读文件失败（{exc.strerror or exc}）")
+    except UnicodeDecodeError:
+        return _recover(path, "不是文本文件（UTF-8 与 ANSI 都读不出来）")
+    try:
+        raw = json.loads(text, parse_float=Decimal)
     except ValueError:
         return _recover(path, "不是合法的 JSON")
     if not isinstance(raw, dict):

@@ -35,6 +35,7 @@ from aurumwatch.theme import Theme
 from aurumwatch.viewmodel import window_view
 
 PUMP_MS = 200  # 主线程取一次取数结果与事件记录的间隔
+ERROR_WAIT_SECONDS = 30  # 一轮出错之后隔多久再取：别空转，也别拖太久
 
 
 def run(journal):
@@ -104,52 +105,66 @@ def _poll_loop(frames, wake, store, journal):
 
     每一轮开头读一次配置快照：阈值、节奏与提示音都照最新的一份来——设置一保存
     下一轮就用上，不用重启。
+
+    每一轮都包在一层网里：没有控制台，线程默默死掉就是一个再也不提醒的监视——
+    谁也不知道。出错就记一条（同一条只说一次）再接着跑，不空转也不停摆。
     """
     codes = [market["code"] for market in markets(store.values)]
     states = {code: INITIAL_STATE for code in codes}
     failures = {code: INITIAL_FAILURE for code in codes}
     unseen = frozenset(codes)  # 还没取到过读数的市场（见下面的「启动时若已越线」）
+    reported = set()  # 说过的出错：同一句话不每轮刷一条
     while True:
-        cfg = store.values
-        advanced = cfg["advanced"]
-        rounds = fetch_rounds(markets(cfg))
-        # 本轮的记账与显示时刻取在取数之后：窗口上「下次刷新」的秒数与这里真正要等的
-        # 秒数出自同一个时刻，不会出现「显示还有 2 秒、实际却等了一分钟」。
-        at = datetime.now()
-        read_codes = frozenset(
-            round_.market["code"] for round_ in rounds if not round_.failed
-        )
-        # 「启动时若已越线立即提醒」关掉时：某市场第一次取到读数的那一轮，越线只记账
-        # 不出声——否则这一轮过后价格还压在阈值外面，下一轮照样提醒，等于没关。
-        silent = frozenset() if advanced["alert_on_start"] else unseen & read_codes
-        unseen -= read_codes
-        alerts, states = evaluate_markets(
-            rounds, states, advanced["rearm_ratio"], silent=silent
-        )
-        warn_after = timedelta(minutes=advanced["failure_warn_minutes"])
-        failures, warnings, changes = update_failures(rounds, failures, at, warn_after)
-        for event in (*alerts, *warnings):
-            notify(event, sound=cfg["sound"])
-        # 这一轮发生的事记进事件记录与日志（窗口上看到的与日后翻到的是同一句话）；
-        # 没有事件的轮次一个字都不写——逐轮行情不进任何一处（见 ADR-0003）。
-        for text in round_texts(changes, alerts, warnings):
-            journal.record(text, at)
-        frames.put(
-            window_view(
-                rounds,
-                states,
-                failures,
-                at,
-                interval=advanced["refresh_interval"],
-                rearm_ratio=advanced["rearm_ratio"],
-                warn_after=warn_after,
+        try:
+            cfg = store.values
+            advanced = cfg["advanced"]
+            rounds = fetch_rounds(markets(cfg))
+            # 本轮的记账与显示时刻取在取数之后：窗口上「下次刷新」的秒数与这里真正要等的
+            # 秒数出自同一个时刻，不会出现「显示还有 2 秒、实际却等了一分钟」。
+            at = datetime.now()
+            read_codes = frozenset(
+                round_.market["code"] for round_ in rounds if not round_.failed
             )
-        )
-        # 从同一个 at 起算：取数耗时已含在内，下一轮仍落在整分上（[立即刷新] 后
-        # 同样如此），窗口上显示的秒数与实际要等的秒数一致。取数期间点的那一下
-        # 已由这一轮兑现，清掉标记，不再补取一轮。
-        wake.clear()
-        wake.wait(next_refresh_delay(at, advanced["refresh_interval"]))
+            # 「启动时若已越线立即提醒」关掉时：某市场第一次取到读数的那一轮，越线只记账
+            # 不出声——否则这一轮过后价格还压在阈值外面，下一轮照样提醒，等于没关。
+            silent = frozenset() if advanced["alert_on_start"] else unseen & read_codes
+            unseen -= read_codes
+            alerts, states = evaluate_markets(
+                rounds, states, advanced["rearm_ratio"], silent=silent
+            )
+            warn_after = timedelta(minutes=advanced["failure_warn_minutes"])
+            failures, warnings, changes = update_failures(
+                rounds, failures, at, warn_after
+            )
+            for event in (*alerts, *warnings):
+                notify(event, sound=cfg["sound"])
+            # 这一轮发生的事记进事件记录与日志（窗口上看到的与日后翻到的是同一句话）；
+            # 没有事件的轮次一个字都不写——逐轮行情不进任何一处（见 ADR-0003）。
+            for text in round_texts(changes, alerts, warnings):
+                journal.record(text, at)
+            frames.put(
+                window_view(
+                    rounds,
+                    states,
+                    failures,
+                    at,
+                    interval=advanced["refresh_interval"],
+                    rearm_ratio=advanced["rearm_ratio"],
+                    warn_after=warn_after,
+                )
+            )
+            # 从同一个 at 起算：取数耗时已含在内，下一轮仍落在整分上（[立即刷新] 后
+            # 同样如此），窗口上显示的秒数与实际要等的秒数一致。取数期间点的那一下
+            # 已由这一轮兑现，清掉标记，不再补取一轮。
+            wake.clear()
+            delay = next_refresh_delay(at, advanced["refresh_interval"])
+        except Exception as exc:  # 一轮的意外不该让监视停摆（见方法开头的说明）
+            note = f"{type(exc).__name__}: {exc}"
+            if note not in reported:
+                reported.add(note)
+                journal.record(f"取数线程出错：{note}")
+            delay = ERROR_WAIT_SECONDS  # 出错也按节奏来，别空转
+        wake.wait(delay)  # 出错时这一轮点过的[立即刷新]仍然算数（不清标记，立刻再试）
 
 
 def _pump(window, frames, journal):

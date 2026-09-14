@@ -24,6 +24,7 @@ ACTIVE_MIX = 0.14  # 按钮按下去时再深/再亮一档
 LIGHT_BG_LUMA = 0.5  # 底色亮到这个程度就算浅色底
 WARN_ON_DARK = "#e6b450"  # 深色底上的警告色（琥珀）
 WARN_ON_LIGHT = "#8a6410"  # 浅色底上压暗到同一色相，否则糊在白底里看不见
+WARN_CONTRAST = 3  # 警告色与底色的对比度下限（WCAG 的 ≥3:1，见 ticket 04）
 
 # 视图模型给的色调 → 主题里的颜色；没列出的（normal、price）一律正文色。
 # 键取自 viewmodel 的常量：哪天改了色调名，这里跟着变，不会悄悄退成正文色。
@@ -68,7 +69,7 @@ class Theme:
             faint=_mix(fg, bg, FAINT_MIX),
             field_bg=_mix(bg, fg, FIELD_MIX),
             button_active_bg=_mix(bg, fg, ACTIVE_MIX),
-            warn=WARN_ON_LIGHT if _luma(bg) >= LIGHT_BG_LUMA else WARN_ON_DARK,
+            warn=warn_color(bg),
         )
 
     def color(self, tone):
@@ -171,6 +172,25 @@ def ttk_style(widget=None):
     return style
 
 
+def warn_color(bg):
+    """在给定底色上看得见的警告色（纯函数）。
+
+    深底用琥珀、浅底用压暗的那支，但中灰底（`#808080` 这类）两支都不够看——所以
+    这里真去量对比度：挑对比度高的一支，还不够就把它往远离底色的方向推，直到够
+    `WARN_CONTRAST`（WCAG 的 3:1）。中灰底上「浅色底那一支」的对比度只有 1.36:1，
+    而窗口上那几行故障提示、底部提示行与故障弹窗都靠这个颜色。
+    """
+    best = max((WARN_ON_DARK, WARN_ON_LIGHT), key=lambda color: _contrast(color, bg))
+    if _contrast(best, bg) >= WARN_CONTRAST:
+        return best
+    away = "#000000" if _luma(bg) >= LIGHT_BG_LUMA else "#ffffff"
+    for step in range(1, 21):
+        mixed = _mix(best, away, step / 20)
+        if _contrast(mixed, bg) >= WARN_CONTRAST:
+            return mixed
+    return away  # 推到头（墨黑／纯白）也只到这个份上：那就是最好的了
+
+
 def contrast_text(color):
     """在给定底色上看得清的文字色：浅底黑字、深底白字（色块上写色号用）。"""
     return "#000000" if _luma(color) >= LIGHT_BG_LUMA else "#ffffff"
@@ -196,6 +216,26 @@ def _mix(color, toward, ratio):
 
 
 def _luma(color):
-    """粗略亮度（0～1）：只用来判断底色是深是浅。"""
+    """粗略亮度（0～1）：只用来判断底色是深是浅、该往哪边推。"""
     red, green, blue = _rgb(color)
     return (0.2126 * red + 0.7152 * green + 0.0722 * blue) / 255
+
+
+def _relative_luminance(color):
+    """WCAG 的相对亮度（每个通道先做 sRGB 反伽马）：对比度得按它算，肉眼估的不够。"""
+    linear = [_linear(channel) for channel in _rgb(color)]
+    return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+
+
+def _linear(channel):
+    """一个 0～255 通道的线性值（WCAG 的 sRGB 反伽马）。"""
+    value = channel / 255
+    return value / 12.92 if value <= 0.04045 else ((value + 0.055) / 1.055) ** 2.4
+
+
+def _contrast(one, other):
+    """两个颜色的对比度（WCAG 的定义）：1 表示一模一样，21 表示黑白。"""
+    lighter, darker = sorted(
+        (_relative_luminance(one), _relative_luminance(other)), reverse=True
+    )
+    return (lighter + 0.05) / (darker + 0.05)

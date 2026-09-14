@@ -118,6 +118,18 @@ class TheRestIsDerived(unittest.TestCase):
             "浅色底上要压暗，否则琥珀色糊在白底里看不见",
         )
 
+    def test_the_warning_color_stays_readable_on_any_background(self):
+        """底色在明暗之间时两支都不够看（中灰底上只有 1.36:1）：得真去量对比度。"""
+        for bg in ("#1e1f22", "#404040", "#808080", "#a0a0a0", "#c0c0c0", "#ffffff"):
+            with self.subTest(bg=bg):
+                theme = theme_of(
+                    bg=bg, fg="#f0f0f0" if luminance(bg) < 0.5 else "#101010"
+                )
+                value = contrast(theme.warn, theme.bg)
+                self.assertGreaterEqual(
+                    value, 3, f"{bg} 底上的警告色只有 {value:.2f}:1，等于看不见"
+                )
+
 
 class FontTiersFollowTheBaseSize(unittest.TestCase):
     """字号只调一个数：各处的档位由基准字号派生（ticket 04 的「整体缩放项」）。"""
