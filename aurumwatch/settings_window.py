@@ -32,7 +32,7 @@ from aurumwatch.config import (
     read_draft,
     validate,
 )
-from aurumwatch.theme import Theme, contrast_text
+from aurumwatch.theme import Theme, contrast_text, ttk_style
 
 WINDOW_TITLE = "设置"
 ENTRY_WIDTH = 14
@@ -392,9 +392,7 @@ class SettingsWindow:
 
     def _style_dropdown(self):
         """下拉框（字体选择）：ttk 默认用系统配色，涂上这套外观才不至于突兀。"""
-        style = ttk.Style(self._window)
-        if "clam" in style.theme_names():
-            style.theme_use("clam")  # vista 主题由系统绘制，颜色配置一概不认
+        style = ttk_style(self._window)  # 与主窗口的滚动条同一条规矩：主题切到 clam
         # clam 自带一圈浅灰描边，深色外观下格外扎眼，一并换掉
         style.configure(
             "Aurum.TCombobox",

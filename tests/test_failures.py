@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""取数故障处理：失败记账与长时间故障警告（纯函数，不碰网络与 UI）。
+"""取数故障处理：失败记账、长时间故障警告、故障出现与恢复（纯函数，不碰网络与 UI）。
 
 故障在窗口上的呈现（错误行、连续失败时长、数据源故障状态）见 `test_viewmodel`。
 """
@@ -72,7 +72,7 @@ class FailureAccounting(unittest.TestCase):
     """每市场独立记账：连续失败起点、到点警告一次、恢复清零。"""
 
     def test_first_failed_round_starts_the_clock_without_warning(self):
-        failures, warnings = update_failures(
+        failures, warnings, _ = update_failures(
             [failed(DOMESTIC)], INITIAL_FAILURES, AT, WARN_AFTER
         )
         self.assertEqual(warnings, (), "刚开始失败不警告")
@@ -80,7 +80,7 @@ class FailureAccounting(unittest.TestCase):
 
     def test_no_warning_before_the_duration_is_reached(self):
         failures = {"gds_AU9999": FailureState(since=AT)}
-        failures, warnings = update_failures(
+        failures, warnings, _ = update_failures(
             [failed(DOMESTIC)],
             failures,
             AT + timedelta(minutes=9, seconds=59),
@@ -91,7 +91,7 @@ class FailureAccounting(unittest.TestCase):
 
     def test_warning_at_exactly_the_configured_duration(self):
         failures = {"gds_AU9999": FailureState(since=AT)}
-        failures, warnings = update_failures(
+        failures, warnings, _ = update_failures(
             [failed(DOMESTIC, "HTTPError: 503")],
             failures,
             AT + WARN_AFTER,
@@ -109,16 +109,16 @@ class FailureAccounting(unittest.TestCase):
     def test_warning_does_not_repeat_while_still_failing(self):
         failures = {"gds_AU9999": FailureState(since=AT, warned=True)}
         for minutes in (11, 20, 60):
-            failures, warnings = update_failures(
+            failures, warnings, _ = update_failures(
                 [failed(DOMESTIC)], failures, AT + timedelta(minutes=minutes), WARN_AFTER
             )
             self.assertEqual(warnings, (), "警告只弹一次")
 
     def test_brief_failure_that_recovers_never_warns(self):
-        failures, _ = update_failures(
+        failures, _, _ = update_failures(
             [failed(DOMESTIC)], INITIAL_FAILURES, AT, WARN_AFTER
         )
-        failures, warnings = update_failures(
+        failures, warnings, _ = update_failures(
             [quoted(DOMESTIC, "940.00")],
             failures,
             AT + timedelta(minutes=5),
@@ -129,7 +129,7 @@ class FailureAccounting(unittest.TestCase):
 
     def test_success_resets_the_clock(self):
         failures = {"gds_AU9999": FailureState(since=AT, warned=True)}
-        failures, warnings = update_failures(
+        failures, warnings, _ = update_failures(
             [quoted(DOMESTIC, "940.00")],
             failures,
             AT + timedelta(minutes=12),
@@ -142,16 +142,16 @@ class FailureAccounting(unittest.TestCase):
         """恢复成功后重新计时，再次长时间故障会再次警告。"""
         failures = {"gds_AU9999": FailureState(since=AT, warned=True)}
         recovered = AT + timedelta(minutes=12)
-        failures, _ = update_failures(
+        failures, _, _ = update_failures(
             [quoted(DOMESTIC, "940.00")], failures, recovered, WARN_AFTER
         )
         restarted = recovered + timedelta(minutes=1)
-        failures, warnings = update_failures(
+        failures, warnings, _ = update_failures(
             [failed(DOMESTIC)], failures, restarted, WARN_AFTER
         )
         self.assertEqual(warnings, (), "重新计时后不满时长不警告")
         self.assertEqual(failures["gds_AU9999"].since, restarted)
-        failures, warnings = update_failures(
+        failures, warnings, _ = update_failures(
             [failed(DOMESTIC)], failures, restarted + timedelta(minutes=10), WARN_AFTER
         )
         self.assertEqual(len(warnings), 1, "再次满时长，再次警告")
@@ -159,7 +159,7 @@ class FailureAccounting(unittest.TestCase):
 
     def test_warn_after_is_configurable(self):
         failures = {"gds_AU9999": FailureState(since=AT)}
-        _, warnings = update_failures(
+        _, warnings, _ = update_failures(
             [failed(DOMESTIC)],
             failures,
             AT + timedelta(minutes=5),
@@ -172,7 +172,7 @@ class FailureAccounting(unittest.TestCase):
         failures = dict(INITIAL_FAILURES)
         fired = []
         for minutes in range(11):  # 国内一直失败，国际一直成功
-            failures, warnings = update_failures(
+            failures, warnings, _ = update_failures(
                 [failed(DOMESTIC), quoted(INTERNATIONAL, "4350.00")],
                 failures,
                 AT + timedelta(minutes=minutes),
@@ -190,6 +190,64 @@ class FailureAccounting(unittest.TestCase):
             [failed(DOMESTIC), failed(INTERNATIONAL)], failures, AT, WARN_AFTER
         )
         self.assertEqual(failures, INITIAL_FAILURES, "传入的失败状态表不被就地修改")
+
+
+class FailureChanges(unittest.TestCase):
+    """一轮里故障的出现与恢复：记账当场报出（供日志与事件记录用）。"""
+
+    def changes(self, rounds, before, at):
+        """跑一轮记账，返回这一轮里的故障出现与恢复。"""
+        _, _, changes = update_failures(rounds, before, at, WARN_AFTER)
+        return changes
+
+    def test_a_first_failed_round_is_an_appearance(self):
+        changes = self.changes(
+            [failed(DOMESTIC, "HTTPError: 503")], dict(INITIAL_FAILURES), AT
+        )
+        self.assertEqual(len(changes), 1)
+        self.assertEqual(changes[0].market, "国内金价")
+        self.assertFalse(changes[0].recovered)
+        self.assertEqual(changes[0].error, "HTTPError: 503")
+
+    def test_a_continuing_failure_is_not_reported_again(self):
+        for minutes in (1, 9, 10, 30):
+            self.assertEqual(
+                self.changes(
+                    [failed(DOMESTIC)],
+                    {"gds_AU9999": FailureState(since=AT)},
+                    AT + timedelta(minutes=minutes),
+                ),
+                (),
+                "一直失败只算一次出现，不是每轮一条",
+            )
+
+    def test_the_first_good_round_after_a_failure_is_a_recovery(self):
+        changes = self.changes(
+            [quoted(DOMESTIC, "940.00")],
+            {"gds_AU9999": FailureState(since=AT, warned=True)},
+            AT + timedelta(minutes=3),
+        )
+        self.assertEqual(len(changes), 1)
+        self.assertTrue(changes[0].recovered)
+        self.assertEqual(changes[0].market, "国内金价")
+        self.assertEqual(changes[0].elapsed, timedelta(minutes=3))
+
+    def test_a_healthy_round_says_nothing(self):
+        self.assertEqual(
+            self.changes([quoted(DOMESTIC, "940.00")], dict(INITIAL_FAILURES), AT), ()
+        )
+
+    def test_each_market_is_reported_on_its_own(self):
+        changes = self.changes(
+            [quoted(DOMESTIC, "940.00"), failed(INTERNATIONAL)],
+            {"gds_AU9999": FailureState(since=AT), "hf_XAU": INITIAL_FAILURE},
+            AT + timedelta(minutes=2),
+        )
+        self.assertEqual(
+            [(change.market, change.recovered) for change in changes],
+            [("国内金价", True), ("国际金价", False)],
+            "一个恢复、一个出现，互不牵连",
+        )
 
 
 class FailureNeverAlerts(unittest.TestCase):

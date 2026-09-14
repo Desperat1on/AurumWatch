@@ -1,10 +1,13 @@
 # -*- coding: utf-8 -*-
-"""编排：主窗口、设置窗口、轮询线程、提醒与视图模型的接线。
+"""编排：主窗口、设置窗口、轮询线程、提醒、事件记录与视图模型的接线。
 
 分工：Tk 只在主线程碰，取数（阻塞的网络请求）放在后台线程；每一轮算好的视图
 模型经队列交给主线程上屏——窗口不因取数卡住，提醒也不会漏。可调项每轮从配置
 快照现取，所以[保存]之后无需重启（见 ticket 03）。外观同理：保存后主窗口与后续
 弹窗当场换新（见 ticket 04）。
+
+事件记录与日志都由 `Journal` 管：一条事件两处同文，只是近况只留最近 50 条
+（见 ticket 05）。
 """
 
 import queue
@@ -16,6 +19,13 @@ from datetime import datetime, timedelta
 from aurumwatch.alerts import INITIAL_STATE, evaluate_markets
 from aurumwatch.config import ConfigStore, markets
 from aurumwatch.failures import INITIAL_FAILURE, update_failures
+from aurumwatch.journal import (
+    SETTINGS_SAVED_TEXT,
+    SHUTDOWN_TEXT,
+    STARTUP_TEXT,
+    Journal,
+    round_texts,
+)
 from aurumwatch.main_window import MainWindow, enable_dpi_awareness, show_error_box
 from aurumwatch.popup import attach, drain_ui_errors, notify, set_theme
 from aurumwatch.quotes import fetch_rounds
@@ -24,47 +34,72 @@ from aurumwatch.settings_window import open_settings
 from aurumwatch.theme import Theme
 from aurumwatch.viewmodel import window_view
 
-PUMP_MS = 200  # 主线程取一次取数结果的间隔
+PUMP_MS = 200  # 主线程取一次取数结果与事件记录的间隔
 
 
-def run():
+def run(journal):
     """打开主窗口开始监视：后台线程按整分取数、判定与记账，越线即弹窗提醒。
 
-    关闭主窗口即退出监视（见 ADR-0001：不做托盘、不藏后台进程）。
+    关闭主窗口即退出监视（见 ADR-0001：不做托盘、不藏后台进程），退出时日志留一条。
     """
     enable_dpi_awareness()
     store = ConfigStore()
     notices = store.load()
+    journal.start()
+    journal.record(STARTUP_TEXT)
     wake = threading.Event()  # [立即刷新] 用它提前结束等待中的取数线程
     frames = queue.Queue()
     theme = Theme.from_appearance(store.values["appearance"])
     window = MainWindow(
         on_refresh=wake.set,
         on_settings=lambda: open_settings(
-            window.root, store, on_saved=lambda values: _applied(window, values)
+            window.root, store, on_saved=lambda values: _applied(window, values, journal)
         ),
+        on_logs=lambda: _open_logs(window, journal),
+        on_error=journal.record,  # 窗口回调里的异常：留一条（没有控制台可打印）
         theme=theme,
     )
     attach(window.root)
     set_theme(theme)  # 弹窗与主窗口用同一份外观：只造一处，不会各拿各的
-    if notices:  # 配置回退这类事，ticket 05 起并入事件记录与落盘日志
-        window.show_notice("；".join(notices))
+    for notice in notices:  # 配置回退这类事：提示行、事件记录与日志说的是同一句
+        _tell(window, journal, f"配置：{notice}")
     threading.Thread(
-        target=_poll_loop, args=(frames, wake, store), name="取数", daemon=True
+        target=_poll_loop, args=(frames, wake, store, journal), name="取数", daemon=True
     ).start()
-    _show_frames(window, frames)
-    window.run()
+    try:
+        _pump(window, frames, journal)  # 先摆一次：事件记录与开窗时的事不必等第一轮取数
+        window.run()  # 进入窗口事件循环；关闭主窗口后返回
+    finally:
+        journal.record(SHUTDOWN_TEXT)  # 关窗与 Ctrl+C 都留一条（见 User Story 23）
 
 
-def _applied(window, values):
+def _applied(window, values, journal):
     """[保存]之后：主窗口与后续弹窗当场换用新外观（阈值与提示音由轮询线程按快照取）。"""
     theme = Theme.from_appearance(values["appearance"])
     set_theme(theme)
     window.apply(theme)
-    window.show_notice("设置已保存")
+    _tell(window, journal, SETTINGS_SAVED_TEXT)  # 什么时候改过设置，日后翻得到（见 User Story 44）
 
 
-def _poll_loop(frames, wake, store):
+def _open_logs(window, journal):
+    """[打开日志]：在资源管理器里打开日志文件夹；打不开就说一句。"""
+    try:
+        journal.open_dir()
+    except OSError as exc:
+        _tell(window, journal, f"打不开日志文件夹：{exc.strerror or exc}")
+
+
+def _tell(window, journal, text):
+    """一条要当面告诉用户的事：底部提示行摆上，同时记进事件记录与日志。
+
+    两处一起说，是因为提示行只停到下一帧（`MainWindow.show` 每轮清一次）——
+    不留下一条记录的话，用户回过头来就再也看不到这件事。
+    """
+    window.show_notice(text)
+    journal.record(text)
+
+
+def _poll_loop(frames, wake, store, journal):
     """轮询线程：取数 → 判定与记账 → 投递提醒与视图模型 → 等到下一个整分。
 
     每一轮开头读一次配置快照：阈值、节奏与提示音都照最新的一份来——设置一保存
@@ -92,9 +127,13 @@ def _poll_loop(frames, wake, store):
             rounds, states, advanced["rearm_ratio"], silent=silent
         )
         warn_after = timedelta(minutes=advanced["failure_warn_minutes"])
-        failures, warnings = update_failures(rounds, failures, at, warn_after)
+        failures, warnings, changes = update_failures(rounds, failures, at, warn_after)
         for event in (*alerts, *warnings):
             notify(event, sound=cfg["sound"])
+        # 这一轮发生的事记进事件记录与日志（窗口上看到的与日后翻到的是同一句话）；
+        # 没有事件的轮次一个字都不写——逐轮行情不进任何一处（见 ADR-0003）。
+        for text in round_texts(changes, alerts, warnings):
+            journal.record(text, at)
         frames.put(
             window_view(
                 rounds,
@@ -113,10 +152,11 @@ def _poll_loop(frames, wake, store):
         wake.wait(next_refresh_delay(at, advanced["refresh_interval"]))
 
 
-def _show_frames(window, frames):
-    """主线程：把取数线程算好的视图模型摆上窗口，并转达弹窗与提示音的报错。
+def _pump(window, frames, journal):
+    """主线程：把取数线程算好的视图模型与最新的事件记录摆上窗口，并转达弹窗与提示音的报错。
 
-    每条报错自带说法（「弹窗显示失败：…」「提示音：…」），这里只负责连起来显示。
+    每条报错自带说法（「弹窗显示失败：…」「提示音：…」），这里只负责原样转达——
+    提示行摆最新的一条，事件记录与日志里攒着这一轮的每一条（见 ticket 05）。
     """
     while True:
         try:
@@ -124,18 +164,23 @@ def _show_frames(window, frames):
         except queue.Empty:
             break
         window.show(view)
-    messages = drain_ui_errors()
-    if messages:
-        window.show_notice("；".join(messages))
-    window.root.after(PUMP_MS, lambda: _show_frames(window, frames))
+    for message in drain_ui_errors():
+        _tell(window, journal, message)
+    window.show_events(journal.recent())
+    window.root.after(PUMP_MS, lambda: _pump(window, frames, journal))
 
 
 def main():
-    """入口：把启动与运行期的意外兜成系统消息框（没有控制台可打印）。"""
+    """入口：把启动与运行期的意外兜成系统消息框，并在日志里留一条（没有控制台可打印）。"""
+    journal = Journal()
     try:
-        run()
+        run(journal)
     except KeyboardInterrupt:
         pass  # 从终端 Ctrl+C：与关闭主窗口同义
     except Exception:
-        show_error_box(f"AurumWatch 出错退出：\n\n{traceback.format_exc()}")
+        # 出错退出的调用栈整段写进日志（一行写不下，也不该只留一句「出错了」）：
+        # 这种时候没有别处可看——消息框一闪而过，没有控制台可打印
+        report = traceback.format_exc().strip()
+        journal.record(f"AurumWatch 出错退出：{report}")
+        show_error_box(f"AurumWatch 出错退出：\n\n{report}")
         sys.exit(1)

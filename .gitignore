@@ -7,3 +7,6 @@ __pycache__/
 config.json
 config.json.bak
 config.json.tmp
+
+# 运行期生成的日志（见 ADR-0003）：不入库
+logs/

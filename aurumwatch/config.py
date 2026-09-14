@@ -449,13 +449,20 @@ def read_draft(draft):
     return values, {}
 
 
-def config_path():
-    """配置文件的位置：打包运行取 exe 同目录，源码运行取仓库根（见 ADR-0002）。"""
+def base_dir():
+    """程序所在目录：打包运行取 exe 同目录，源码运行取仓库根（见 ADR-0002）。
+
+    `config.json` 与 `logs/` 都摆在这里，两者不许有两种定位规则——否则会出现
+    「配置跟着 exe 走、日志落在别处」这种事。
+    """
     if getattr(sys, "frozen", False):
-        base = Path(sys.executable).resolve().parent
-    else:
-        base = Path(__file__).resolve().parent.parent
-    return base / CONFIG_NAME
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent.parent
+
+
+def config_path():
+    """配置文件的位置：与程序放在一起，换电脑时拷走它设置跟着走（见 ADR-0002）。"""
+    return base_dir() / CONFIG_NAME
 
 
 def dumps(values):

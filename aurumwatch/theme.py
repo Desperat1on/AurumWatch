@@ -8,10 +8,14 @@
 
 import tkinter as tk
 from dataclasses import dataclass
+from tkinter import ttk
 
 from aurumwatch.viewmodel import TONE_DIM, TONE_FALL, TONE_RISE, TONE_WARN
 
 BASE_SIZE = 10  # 字号档位的标定基准：配置里基准字号的默认值也是它
+
+# 滚动条的 ttk 样式名：`scrollbar` 造控件与 `paint_scrollbar` 上色都按它取名
+SCROLLBAR_STYLE = "Aurum.Vertical.TScrollbar"
 
 DIM_MIX = 0.35  # 次要文字（行情数据时间那一类）：往背景色靠这么多
 FAINT_MIX = 0.55  # 更次要的文字（弹窗上「点击关闭」那行）
@@ -111,6 +115,60 @@ class Theme:
             disabledbackground=self.bg, disabledforeground=self.dim,
         )
         return entry
+
+    def style_text(self, widget):
+        """只读文本区（事件记录）：底色同背景、无边框，选中的一片用按钮按下色。
+
+        字号不在这里定：文本区按哪一档由窗口说了算（见 main_window.EVENT_STEP）。
+        """
+        widget.configure(
+            bg=self.bg, fg=self.fg, insertbackground=self.fg,
+            selectbackground=self.button_active_bg, selectforeground=self.fg,
+            relief="flat", borderwidth=0, highlightthickness=0,
+        )
+        return widget
+
+    def scrollbar(self, parent, command):
+        """一条竖滚动条：造出来就是当前外观的样子（与 `button` 一样，造与涂一处办）。
+
+        `tk.Scrollbar` 在 Windows 上画的是系统那一支，配色一个都不认——深色窗口里
+        横着一条浅灰的槽，改外观时它也纹丝不动，所以这里用的是 ttk 那支。
+        """
+        self.paint_scrollbar()
+        return ttk.Scrollbar(
+            parent, command=command, orient="vertical", style=SCROLLBAR_STYLE
+        )
+
+    def paint_scrollbar(self):
+        """按这套外观配置滚动条样式：改外观时再调一次，已经造出来的滚动条跟着变。
+
+        ttk 的样式是解释器级的，与具体哪个控件无关——所以这里不收控件参数。
+        """
+        style = ttk_style()
+        style.configure(
+            SCROLLBAR_STYLE,
+            background=self.field_bg,
+            troughcolor=self.bg,
+            bordercolor=self.bg,
+            arrowcolor=self.fg,
+            lightcolor=self.field_bg,
+            darkcolor=self.field_bg,
+            relief="flat",
+        )
+        style.map(SCROLLBAR_STYLE, background=[("active", self.button_active_bg)])
+
+
+def ttk_style(widget=None):
+    """取一份 ttk 样式表，顺便确保主题是认颜色的那一支（clam）。
+
+    ttk 的默认主题（vista）由系统绘制，颜色配置一概不认——设置窗口的字体下拉与
+    主窗口的滚动条都要改色，两处从这里取同一条规矩。主题是解释器级的，切一次全局
+    生效，已经造出来的控件跟着变；已经是 clam 就不重复切，免得每次保存都重来一遍。
+    """
+    style = ttk.Style(widget)
+    if "clam" in style.theme_names() and style.theme_use() != "clam":
+        style.theme_use("clam")
+    return style
 
 
 def contrast_text(color):
