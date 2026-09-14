@@ -50,4 +50,10 @@
   ⑦ **`_fill` 对置灰的输入框调 delete/insert 是空操作**（Tk 语义：disabled 的 Entry 不吃，`readonly` 同样），音效文件那格只是靠另一行兜着才没露馅：那格不再进 `_text`，值统一由变量设，`_sync_sound_row` 改用命名属性——把「碰巧对」变成「本来就这样」。
   ⑧ `_build_exits` 的返回值没人要：去掉。
   ⑨ **未复现**：报告称 ttk（字体下拉 + `theme_use("clam")`）会让解释器收尾时打印 `event generate ... <<ThemeChanged>>` 的 Tcl 错。五种场景都没能复现（最小 ttk 用例、真实设置窗口开关、窗口开着/关着销毁根窗、`mainloop` 与自然退出、展开下拉后销毁），且它只走 stderr、`pythonw` 下根本看不见；不改设计（换成 `tk.OptionMenu` 要拿四百多个字体名去撑一个菜单），记为未复现，日后真出现再查。
+- **评审第三轮（两个复查代理扫全量 diff 后报的，逐条复现）**：
+  ① **色块按钮漏了 `font=`**——它是整个设置窗口里唯一不跟基准字号走的控件（实测 `reqwidth` 在 10 磅与 20 磅下都是 110px，而同行输入框从 31px 长到 56px），与 theme.py 开头那句「改一个数各处一起变」不符。补上字体后实测 130px → 250px。
+  ② **ttk 下拉框只涂了底色与字色，clam 自带的浅灰描边与浅灰选中底色没换**（实测 `bordercolor=#9e9a91`、`selectbackground=#9e9a91`）——深色外观下一圈浅灰框、拖选字体名时几乎看不见字。`bordercolor`／`lightcolor`／`darkcolor` 走 `configure` 就落上了；**`selectbackground` 不在 `configure` 能落的元素选项里**（clam 的 `Combobox.field` 只有 bordercolor／lightcolor／darkcolor／fieldbackground），得走 `map` 才生效。两处都改完实测取到主题色。
+  ③ **开关项没有红字位**：`validate` 会产出 `sound.enabled`／`appearance.topmost`／`advanced.alert_on_start` 三类错误，而 `_flag_row` 只登记勾选框变量、`_errors` 里没有这些键——真有坏值（只有外部调用方喂得进来）时用户只看到整窗那句「有项目还没填对」，不知道改哪一行。补上红字位。
+  ④ **`_fill` 的门闩没有 try/finally**：填值中途抛错会把 `_filling` 永久留在 True，此后预览不再刷新且没有任何提示。当前构造不出可达输入（`store.values`／`default_values()` 必然完整），但这是门闩新引入的失效模式，用 try/finally 封住。
+  两条代理另外复核为「不存在」的：闭包晚绑定、trace 递归与生命周期、Spinbox 选项与取整、`_rgb` 收到 3 位/8 位 hex 的可达性、`int(appearance[...])` 的入参类型、弹窗 `after` 与 `_open_popups` 的清理、假值当缺值——都附了实测依据（其中 `scaled` 在 8–20 磅、10 的倍数入参下恒为整数且取不到 0；280 次恶意写值 0 异常）。
 - **未手验/已知限制**：多显示器仍只认主屏四角（spec 的 Out of Scope）；设置窗口是固定布局、不能滚动，两栏内容加 1:1 预览注定了小屏上有个极限——实测 10 磅约 939x529 逻辑像素、14 磅 1209x625、20 磅 1633x825，1366x768 这类屏幕到 16 磅上下就会顶边（字号上限 20 正是按这条线收的）；截图与驱动脚本只在 150% 缩放下跑过。

@@ -276,6 +276,7 @@ class SettingsWindow:
         self._label(section, row, label)
         swatch = tk.Button(
             section, width=10, relief="flat", cursor="hand2",
+            font=self._theme.font(),
             # 一圈细边：底色与窗口撞色时（黑底配黑窗），色块才不至于看不见边界
             highlightthickness=1, highlightbackground=self._theme.dim,
             highlightcolor=self._theme.dim,
@@ -321,7 +322,11 @@ class SettingsWindow:
         )
 
     def _flag_row(self, section, row, label, field):
-        """一个开关项：勾选框 + 与它同行的红字位（开关本身不会出错，占位对齐而已）。"""
+        """一个开关项：勾选框 + 与它同行的红字位。
+
+        勾选框自己给不出错值，但校验认的是字段值——别的调用方喂进非布尔时，
+        红字得有地方写，否则用户只看到「有项目还没填对」而不知道是哪一行。
+        """
         flag = tk.BooleanVar()
         tk.Checkbutton(
             section, text=label, variable=flag, bg=self._theme.bg,
@@ -330,6 +335,7 @@ class SettingsWindow:
             selectcolor=self._theme.field_bg, highlightthickness=0, anchor="w",
         ).grid(row=row, column=0, columnspan=2, sticky="w", pady=(4, 2))
         self._flags[field] = flag
+        self._error_label(section, row, field)
 
     def _error_label(self, section, row, field):
         """一个字段的红字位：照着字段标识挂起来，`_show_errors` 知道该把话说在哪。"""
@@ -373,21 +379,26 @@ class SettingsWindow:
         style = ttk.Style(self._window)
         if "clam" in style.theme_names():
             style.theme_use("clam")  # vista 主题由系统绘制，颜色配置一概不认
+        # clam 自带一圈浅灰描边，深色外观下格外扎眼，一并换掉
         style.configure(
             "Aurum.TCombobox",
             fieldbackground=self._theme.field_bg,
             background=self._theme.field_bg,
             foreground=self._theme.fg,
             arrowcolor=self._theme.fg,
-            selectbackground=self._theme.field_bg,
-            selectforeground=self._theme.fg,
+            bordercolor=self._theme.field_bg,
+            lightcolor=self._theme.field_bg,
+            darkcolor=self._theme.field_bg,
             padding=2,
         )
+        # 选中底色只能走 map：它不在 configure 能落的元素选项里（挡着不改会留一抹浅灰）
         style.map(
             "Aurum.TCombobox",
             fieldbackground=[("readonly", self._theme.field_bg)],
             foreground=[("readonly", self._theme.fg)],
             background=[("active", self._theme.button_active_bg)],
+            selectbackground=[("readonly", self._theme.button_active_bg)],
+            selectforeground=[("readonly", self._theme.fg)],
         )
         # 展开后的候选列表是另一个窗口，颜色得单独交代
         for option, color in (
@@ -403,21 +414,24 @@ class SettingsWindow:
     def _fill(self, values):
         """按一份配置填一遍控件（打开时、[恢复默认]时各来一次）。"""
         self._filling = True  # 填的过程里别一次次重画预览，填完再画（见 _appearance_changed）
-        for field, entry in self._text.items():
-            entry.delete(0, "end")
-            entry.insert(0, as_text(_field_value(values, field)))
-        for field, flag in self._flags.items():
-            flag.set(bool(_field_value(values, field)))
-        for key, variable in self._colors.items():
-            variable.set(values["appearance"][key])
-        self._font.set(values["appearance"]["font"])
-        self._corner.set(values["appearance"]["popup_corner"])
-        self._sound_choice.set(values["sound"]["choice"])
-        self._sound_file.set(values["sound"]["file"])  # 上面那圈到不了它（见 _sound_entry）
+        try:
+            for field, entry in self._text.items():
+                entry.delete(0, "end")
+                entry.insert(0, as_text(_field_value(values, field)))
+            for field, flag in self._flags.items():
+                flag.set(bool(_field_value(values, field)))
+            for key, variable in self._colors.items():
+                variable.set(values["appearance"][key])
+            self._font.set(values["appearance"]["font"])
+            self._corner.set(values["appearance"]["popup_corner"])
+            self._sound_choice.set(values["sound"]["choice"])
+            self._sound_file.set(values["sound"]["file"])  # 上面那圈到不了它（见 _sound_entry）
+        finally:
+            # 半路抛错也要把门闩放下：留着它，预览从此不再刷新，还没人知道
+            self._filling = False
         self._sync_sound_row()
         self._show_errors({})
         self._notice.configure(text="")
-        self._filling = False
         self._refresh_preview()
 
     def _draft(self):
