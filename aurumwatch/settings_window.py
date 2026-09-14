@@ -80,6 +80,7 @@ class SettingsWindow:
         self._flags = {}  # 字段标识 → 勾选框
         self._errors = {}  # 字段标识 → 红字标签
         self._filling = False  # 是否正在成批填控件（填的过程里不重画预览）
+        self._sound_entry = None  # 音效文件那个输入框：不进 _text，见 _build_sound 的说明
         self._colors = {}  # 颜色键（bg/fg/rise/fall）→ 色块按钮上的色号
         self._swatches = {}  # 颜色键 → 色块按钮
 
@@ -142,9 +143,10 @@ class SettingsWindow:
 
         self._label(section, 2, "文件")
         row = self._holder(section, 2)
-        entry = self._entry(row, self._sound_file, width=FILE_ENTRY_WIDTH)
-        entry.pack(side="left")
-        self._text[SOUND_FILE] = entry
+        # 这一格不进 _text：它带 textvariable，值由变量直接设（见 _fill），
+        # 而且选系统提示音时它是置灰的——Tk 在置灰的输入框上会默默吞掉 delete/insert
+        self._sound_entry = self._entry(row, self._sound_file, width=FILE_ENTRY_WIDTH)
+        self._sound_entry.pack(side="left")
         self._theme.button(row, "选择…", self.pick_sound_file).pack(
             side="left", padx=(6, 0)
         )
@@ -213,7 +215,6 @@ class SettingsWindow:
             ("保存", self.save, 8),
         ):
             self._theme.button(bottom, text, command).pack(side="right", padx=(0, pad))
-        return bottom
 
     def _section(self, parent, title):
         """一组设置：标题框 + 两列网格（名称｜输入框｜红字），输入框那列可拉伸。"""
@@ -412,7 +413,7 @@ class SettingsWindow:
         self._font.set(values["appearance"]["font"])
         self._corner.set(values["appearance"]["popup_corner"])
         self._sound_choice.set(values["sound"]["choice"])
-        self._sound_file.set(values["sound"]["file"])
+        self._sound_file.set(values["sound"]["file"])  # 上面那圈到不了它（见 _sound_entry）
         self._sync_sound_row()
         self._show_errors({})
         self._notice.configure(text="")
@@ -533,7 +534,7 @@ class SettingsWindow:
     def _sync_sound_row(self):
         """选了系统提示音就把文件那行置灰：免得对着用不上的输入框发愣。"""
         state = "normal" if self._sound_choice.get() == CUSTOM_SOUND else "disabled"
-        self._text[SOUND_FILE].configure(state=state)
+        self._sound_entry.configure(state=state)
 
     # —— 出口 ——
 

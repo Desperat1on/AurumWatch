@@ -26,7 +26,7 @@ STATUS_STEP = 0
 NOTICE_STEP = -1
 
 # 折行宽度（像素，按基准字号 10 标定）：不加限制时，一行长报错会把窗口撑到几千像素宽；
-# 字号调大后按比例放宽，一行放得下的字数才不至于变少（见 theme.Theme.wrap）
+# 字号调大后按比例放宽，一行放得下的字数才不至于变少（见 theme.Theme.scaled）
 WRAP_AT_BASE = 520
 MIN_SIZE = (460, 320)
 
@@ -40,7 +40,6 @@ class MainWindow:
         self._error_reported = False
         self._root = tk.Tk()
         self._root.title(WINDOW_TITLE)
-        self._root.minsize(*(theme.scaled(side) for side in MIN_SIZE))
         self._root.protocol("WM_DELETE_WINDOW", self._close)
         self._root.report_callback_exception = self._report_callback_error
 
@@ -77,6 +76,8 @@ class MainWindow:
         """
         self._theme = theme
         self._root.configure(bg=theme.bg)
+        # 最小尺寸也跟着字号走（否则保存了更大的字号之后，窗口还能被拖到装不下内容）
+        self._root.minsize(*(theme.scaled(side) for side in MIN_SIZE))
         self._root.attributes("-topmost", theme.topmost)
         self._headline.configure(
             bg=theme.bg, fg=theme.fg,

@@ -9,6 +9,8 @@
 import tkinter as tk
 from dataclasses import dataclass
 
+from aurumwatch.viewmodel import TONE_DIM, TONE_FALL, TONE_RISE, TONE_WARN
+
 BASE_SIZE = 10  # 字号档位的标定基准：配置里基准字号的默认值也是它
 
 DIM_MIX = 0.35  # 次要文字（行情数据时间那一类）：往背景色靠这么多
@@ -19,8 +21,9 @@ LIGHT_BG_LUMA = 0.5  # 底色亮到这个程度就算浅色底
 WARN_ON_DARK = "#e6b450"  # 深色底上的警告色（琥珀）
 WARN_ON_LIGHT = "#8a6410"  # 浅色底上压暗到同一色相，否则糊在白底里看不见
 
-# 视图模型给的色调 → 主题里的颜色；没列出的（normal、price）一律正文色
-_TONE_FIELDS = {"dim": "dim", "rise": "rise", "fall": "fall", "warn": "warn"}
+# 视图模型给的色调 → 主题里的颜色；没列出的（normal、price）一律正文色。
+# 键取自 viewmodel 的常量：哪天改了色调名，这里跟着变，不会悄悄退成正文色。
+_TONE_FIELDS = {TONE_DIM: "dim", TONE_RISE: "rise", TONE_FALL: "fall", TONE_WARN: "warn"}
 
 
 @dataclass(frozen=True)

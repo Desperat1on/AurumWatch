@@ -18,15 +18,19 @@ from ctypes import wintypes
 from datetime import datetime
 from decimal import Decimal
 
-from aurumwatch.alerts import UPSIDE, Alert
+from aurumwatch.alerts import DOWNSIDE, UPSIDE, Alert
 from aurumwatch.config import CUSTOM_SOUND, default_values
 from aurumwatch.failures import FailureWarning, duration_text
+from aurumwatch.viewmodel import TONE_FALL, TONE_RISE, TONE_WARN
 from aurumwatch.theme import Theme
 
 POPUP_MARGIN = 24  # 距屏幕工作区边缘的留白（像素）
 POPUP_GAP = 10  # 同一角上多个弹窗之间的间距（像素）
 ERROR_SHORT_LIMIT = 72  # 弹窗里错误文本的最大字符数，超长截断
 PUMP_MS = 200  # 主线程取一次提醒队列的间隔
+
+# 方向 → 色调（涨红跌绿）：弹窗的描边与方向词按它取色
+_DIRECTION_TONES = {UPSIDE: TONE_RISE, DOWNSIDE: TONE_FALL}
 
 # 弹窗的字号档位（相对基准字号）：标题、大数字、正文、脚注
 TITLE_STEP = 5
@@ -42,8 +46,8 @@ _events = queue.Queue()
 _ui_errors = queue.Queue()  # 弹窗与提示音的报错，每条自带说法，由编排层取走显示在窗口底部
 _root = None
 _theme = Theme.from_appearance(default_values()["appearance"])  # 编排层接手前的默认外观
-_open_popups = []
-_reported = set()  # 说过的音效问题（同一条不每轮重复），见 _report
+_open_popups = []  # 已弹出的窗口：[(窗口, 贴的角)]，同角叠放时数位置用
+_reported_sound = set()  # 已经说过「放不出来」的音效文件（按路径记），见 _report_sound
 
 
 def attach(root):
@@ -59,15 +63,17 @@ def set_theme(theme):
     _theme = theme
 
 
-def notify(event, *, sound=None):
+def notify(event, *, sound):
     """投递一次提醒（价格越线或故障警告）：一声提示音（可关、音效可换）＋一个小窗。
 
-    sound 由编排层按当前配置的快照传入：提示音开关与音效一保存就生效，不用重启。
+    sound 是配置里的音效段，由编排层按当前快照传入（提示音开关与音效一保存就生效，
+    不用重启）。这里**不给默认值**：要不要出声、用哪个音效是用户配置说了算的事，
+    默认成「不出声」会变成一个不出声的提醒，默认成「出声」又可能违背用户的设置。
     """
     if sound and sound.get("enabled"):
         notice = play_sound(sound)
         if notice:
-            _report(f"提示音：{notice}")
+            _report_sound(sound, notice)
     _events.put(event)
 
 
@@ -80,8 +86,10 @@ def play_sound(sound):
     if sound.get("choice") != CUSTOM_SOUND:
         _beep()
         return None
-    problem = _play_wav(str(sound.get("file") or ""))
+    path = str(sound.get("file") or "")
+    problem = _play_wav(path)
     if problem is None:
+        _reported_sound.discard(path)  # 又能放了：日后再坏，还会再说一次
         return None
     _beep()
     return f"{problem}，已改用系统提示音"
@@ -130,11 +138,14 @@ def build_card(parent, event, theme):
 
 
 def _look(event, theme):
-    """一张卡片的描边色与填充函数：价格提醒看方向，故障警告一律警告色。"""
+    """一张卡片的描边色与填充函数：价格提醒看方向，故障警告一律警告色。
+
+    涨红跌绿沿用国内行情习惯（见 CONTEXT.md）；认不出的方向按警告色画——那说明
+    有事不对，不该拿涨破色或跌破色去冒充一个不存在的方向。
+    """
     if isinstance(event, FailureWarning):
         return theme.warn, _fill_failure
-    accent = theme.rise if event.direction == UPSIDE else theme.fall
-    return accent, _fill_alert
+    return theme.color(_DIRECTION_TONES.get(event.direction, TONE_WARN)), _fill_alert
 
 
 def _pump():
@@ -161,15 +172,17 @@ def drain_ui_errors():
             return messages
 
 
-def _report(message):
-    """说一次就够的问题（例如音效文件放不出来）：别每分钟提醒一次同一件事。
+def _report_sound(sound, notice):
+    """音效放不出来：同一个文件只说一次，别每分钟提醒一次同一件事。
 
-    换过音效、或设置里[试听]之后再出问题，说法不一样，自然会再报一次。
+    按文件路径记账（不是按那句话），而且放成功一次就把记录撤掉（见 play_sound）——
+    文件插回来再掉线，用户还会被知会一声，不会从此闷掉。
     """
-    if message in _reported:
+    path = str(sound.get("file") or "")
+    if path in _reported_sound:
         return
-    _reported.add(message)
-    _ui_errors.put(message)
+    _reported_sound.add(path)
+    _ui_errors.put(f"提示音：{notice}")
 
 
 def _play_wav(path):
@@ -296,8 +309,7 @@ def _show_popup(event, theme=None):
     def close(event=None):
         if window.winfo_exists():
             window.destroy()
-        if window in _open_popups:
-            _open_popups.remove(window)
+        _open_popups[:] = [item for item in _open_popups if item[0] is not window]
 
     def bind_close(widget):
         # 在鼠标松开（完整点击）时才关闭：按下即销毁会让松开事件落到弹窗底下的窗口上
@@ -312,10 +324,11 @@ def _show_popup(event, theme=None):
         theme.popup_corner,
         _work_area(),
         (window.winfo_reqwidth(), window.winfo_reqheight()),
-        len(_open_popups),
+        # 只数贴在同一个角上的：改过[弹窗位置]之后，还留在老角上的那些不该占新角的位置
+        sum(1 for _, corner in _open_popups if corner == theme.popup_corner),
     )
     window.geometry(f"+{x}+{y}")
-    _open_popups.append(window)
+    _open_popups.append((window, theme.popup_corner))
     previous_foreground = ctypes.windll.user32.GetForegroundWindow()
     window.deiconify()
     _keep_foreground(previous_foreground)

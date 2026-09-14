@@ -10,6 +10,14 @@ import unittest
 
 from aurumwatch.config import default_values
 from aurumwatch.theme import BASE_SIZE, Theme
+from aurumwatch.viewmodel import (
+    TONE_DIM,
+    TONE_FALL,
+    TONE_NORMAL,
+    TONE_PRICE,
+    TONE_RISE,
+    TONE_WARN,
+)
 
 
 def theme_of(**changes):
@@ -57,12 +65,13 @@ class TheSixSettingsTakeEffect(unittest.TestCase):
         self.assertTrue(theme.topmost)
 
     def test_each_tone_picks_its_own_color(self):
+        """色调名取自 viewmodel 的常量：哪天改了名，这里跟着改，不会悄悄退成正文色。"""
         theme = theme_of(bg="#ffffff", fg="#101010", rise="#c00000", fall="#008000")
-        self.assertEqual(theme.color("rise"), "#c00000")
-        self.assertEqual(theme.color("fall"), "#008000")
-        self.assertEqual(theme.color("dim"), theme.dim)
-        self.assertEqual(theme.color("warn"), theme.warn)
-        for tone in ("normal", "price", "不认识的色调"):
+        self.assertEqual(theme.color(TONE_RISE), "#c00000")
+        self.assertEqual(theme.color(TONE_FALL), "#008000")
+        self.assertEqual(theme.color(TONE_DIM), theme.dim)
+        self.assertEqual(theme.color(TONE_WARN), theme.warn)
+        for tone in (TONE_NORMAL, TONE_PRICE, "不认识的色调"):
             with self.subTest(tone=tone):
                 self.assertEqual(theme.color(tone), "#101010", "认不出的色调按正文色")
 
